@@ -7,3 +7,7 @@ import threading
 import winsound
 import colorama
 
+
+class PolicyGradient(object):
+    def __init__(self):
+        self.weight = []
