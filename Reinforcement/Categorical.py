@@ -17,11 +17,11 @@ class PolicyGradient(object):
         self.learning_rate = learning_rate
         self.hidden_layers = hid_layers
         self.model_init()
-        self.activation = activation
+        self.activation = activation.value
     
     class Activation(Enum):  
-        RELU = partial(lambda x: max(0, x))
-        ELU = partial(lambda x, alpha: x if x >= 0 else alpha * (np.exp(x) - 1))
+        RELU = partial(lambda x: np.maximum(0, x))
+        ELU = partial(lambda x, alpha: np.where(x >= 0, x, alpha * (np.exp(x) - 1)))
         SWISH = partial(lambda x: x / (1 + np.exp(-x)))
     
     def model_init(self):
@@ -41,4 +41,3 @@ class PolicyGradient(object):
         logp = np.dot(self.model[2], hid)
         prob = self.softmax(logp)
         return prob, hid
-    
