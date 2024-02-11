@@ -11,9 +11,9 @@ from functools import partial
 
 
 class PolicyGradient(object):
-    def __init__(self, os, acp, learning_rate, hid_layers, activation):
-        self.num_states = os
-        self.num_actions = acp
+    def __init__(self, env, learning_rate, hid_layers, activation):
+        self.num_states = env.observation_space
+        self.num_actions = env.action_space
         self.learning_rate = learning_rate
         self.hidden_layers = hid_layers
         self.model_init()
