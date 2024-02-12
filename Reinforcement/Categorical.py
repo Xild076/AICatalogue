@@ -138,6 +138,7 @@ class PolicyGradient(object):
             if epoch % batch_size == 0:
                 for k, v in self.model.items():
                     g = grad_buffer[k]
-                    grad_add, self.cache_1[k], self.cache_2[k] = self.optimization(g, self.cache_1[k], self.cache_2[k], self.beta1, self.beta2, self.learning_rate, epoch)
+                    grad_add, self.cache_1[k], self.cache_2[k] = self.optimization(g, self.cache_1[k], self.cache_2[k], 
+                                                                                   self.beta1, self.beta2, self.learning_rate, epoch)
                     self.model[k] += grad_add
                     grad_buffer[k] = np.zeros_like(v)
