@@ -11,19 +11,39 @@ from functools import partial
 
 
 class PolicyGradient(object):
-    def __init__(self, env, learning_rate, hid_layers, activation):
+    def __init__(self, env, learning_rate, hid_layers, activation, optimization, alpha=0):
+        self.env = env
         self.num_states = env.observation_space
         self.num_actions = env.action_space
         self.learning_rate = learning_rate
         self.hidden_layers = hid_layers
         self.model_init()
         self.activation = activation.value
+        self.optimization = optimization.value
+        self.alpha = alpha
+        self.discount = 0.99
+        self.beta1 = 0.99
+        self.beta2 = 0.99
     
     class Activation(Enum):  
         RELU = partial(lambda x: np.maximum(0, x))
         ELU = partial(lambda x, alpha: np.where(x >= 0, x, alpha * (np.exp(x) - 1)))
         SWISH = partial(lambda x: x / (1 + np.exp(-x)))
     
+    class Optimization(Enum):
+        RMSPROP = partial(lambda g, c1, c2, b1, b2, lr: PolicyGradient.Optimization.rmsprop(g, c1, c2, b1, b2, lr))
+        
+        def rmsprop(grad, cache1, cache2, beta1, beta2, lr):
+            rc = beta1 * cache1[k] + (1 - beta1) * grad**2
+            return (lr * grad / (np.sqrt(rc) + 1e-8)), rc, 0
+        
+        def sgd(grad, cache1, cache2, beta1, beta2, lr):
+            return - lr * grad, 0, 0
+
+        def adam(grad, cache1, cache2, beta1, beta2, lr):
+            pass
+            
+            
     def model_init(self):
         self.model = {
             1: np.random.randn(self.hidden_layers, self.num_states) / np.sqrt(self.num_actions) * self.learning_rate,
@@ -56,3 +76,56 @@ class PolicyGradient(object):
         dh = self.activation(dh, 0) if alpha else self.activation(dh)
         dW1 = np.dot(dh.T, state_change)
         return {1: dW1, 2: dW2}
+
+    def train(self, epochs, batch_size, count_max):
+        for epoch in range(epochs):
+            grad_buffer = {k: np.zeros_like(v) for k, v in self.model.items()}
+            self.cache_1 = {k: np.zeros_like(v) for k, v in self.model.items()}
+            self.cache_2 = {k: np.zeros_like(v) for k, v in self.model.items()}
+            sstate, shidden, sgrads, srewards = [], [], [], []
+            
+            state = self.env.reset()
+            old_state = 0
+            done = False
+            counter = 0
+            reward_sum = 0
+            
+            while not done and counter <= count_max:
+                counter += 1
+                calc_state = state - old_state
+                
+                prob, hid = self.policy_forward(calc_state, self.alpha)
+                action = np.random.choice(np.arange(self.num_actions))
+                
+                aoh = np.zeros(self.num_actions)
+                aoh[action] = 1
+                
+                sstate.append(calc_state)
+                shidden.append(hid)
+                sgrads.append(aoh - prob)
+                
+                state, reward, done, _ = self.env.step(action)
+                srewards.append(reward)
+                
+                reward_sum += reward
+                
+            vstate = np.vstack(sstate)
+            vhidden = np.vstack(shidden)
+            vgrads = np.vstack(sgrads)
+            vrewards = np.vstack(srewards)
+            
+            discounted_vrew = self.discount_rewards(vrewards)
+            discounted_vrew -= (np.mean(discounted_vrew)).astype(np.float64)
+            discounted_vrew /= ((np.std(discounted_vrew)).astype(np.float64) + 1e-8)
+
+            vgrads *= discounted_vrew
+            grad = self.policy_backward(vstate, vhidden, vgrads)
+            for k in self.model: 
+                grad_buffer[k] += grad[k]
+        
+            if epoch % batch_size == 0:
+                for k, v in self.model.items():
+                    g = grad_buffer[k]
+                    grad_add, self.cache_1[k], self.cache_2[k] = self.optimization(g, self.cache_1[k], self.cache_2[k], self.beta1, self.beta2, self.learning_rate)
+                    self.model[k] += grad_add
+                    grad_buffer[k] = np.zeros_like(v)
