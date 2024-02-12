@@ -1,40 +1,34 @@
 import numpy as np
 from random import random
-from datetime import datetime
 import time
-import matplotlib.pyplot as plt
-import threading
-import winsound
-import colorama
+import math
 from enum import Enum
-from functools import partial
-
 
 class PolicyGradient(object):
     def __init__(self, env, learning_rate, hid_layers, activation, optimization, alpha=0):
         self.env = env
-        self.num_states = env.observation_space
+        self.num_states = env.observation_space # Fix: use shape[0]
         self.num_actions = env.action_space
         self.learning_rate = learning_rate
         self.hidden_layers = hid_layers
         self.model_init()
-        self.activation = activation.value
-        self.optimization = optimization.value
+        self.activation = activation
+        self.optimization = optimization
         self.alpha = alpha
         self.discount = 0.99
         self.beta1 = 0.99
         self.beta2 = 0.99
     
     class Activation(Enum):  
-        RELU = partial(lambda x: np.maximum(0, x))
-        ELU = partial(lambda x, alpha: np.where(x >= 0, x, alpha * (np.exp(x) - 1)))
-        SWISH = partial(lambda x: x / (1 + np.exp(-x)))
+        RELU = lambda x, alpha: np.maximum(0, x)  # Fix: remove partial
+        ELU = lambda x, alpha: np.where(x >= 0, x, alpha * (np.exp(x) - 1))
+        SWISH = lambda x, alpha: x / (1 + np.exp(-x))
     
     class Optimization(Enum):
-        RMSPROP = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.rmsprop(g, c1, c2, b1, b2, lr, epoch))
-        SGD = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.sgd(g, c1, c2, b1, b2, lr, epoch))
-        ADAM = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.adam(g, c1, c2, b1, b2, lr, epoch))
-        NADAM = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.nadam(g, c1, c2, b1, b2, lr, epoch))
+        RMSPROP = lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.rmsprop(g, c1, c2, b1, b2, lr, epoch)
+        SGD = lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.sgd(g, c1, c2, b1, b2, lr, epoch)
+        ADAM = lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.adam(g, c1, c2, b1, b2, lr, epoch)
+        NADAM = lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.nadam(g, c1, c2, b1, b2, lr, epoch)
         
         def rmsprop(grad, cache1, cache2, beta1, beta2, lr, epoch):
             rc = beta1 * cache1 + (1 - beta1) * grad**2
@@ -46,16 +40,16 @@ class PolicyGradient(object):
         def adam(grad, cache1, cache2, beta1, beta2, lr, epoch):
             c1 = beta1 * cache1 + (1 - beta1) * grad
             c2 = beta2 * cache2 + (1 - beta1) * grad**2
-            c1_corrected = c1 / (1 - beta1 ** epoch)
-            c2_corrected = c2 / (1 - beta2 ** epoch)
+            c1_corrected = c1 / (1 - beta1 ** epoch + 1e-8)
+            c2_corrected = c2 / (1 - beta2 ** epoch + 1e-8)
             grad_b_add = - lr * c1_corrected / (np.sqrt(c2_corrected) + 1e-8)
             return grad_b_add, c1, c2
 
         def nadam(grad, cache1, cache2, beta1, beta2, lr, epoch):
             c1 = beta1 * cache1 + (1 - beta1) * grad
             c2 = beta2 * cache2 + (1 - beta2) * grad**2
-            c1_corrected = c1 / (1 - beta1 ** epoch)
-            c2_corrected = c2 / (1 - beta2 ** epoch)
+            c1_corrected = c1 / (1 - beta1 ** epoch + 1e-8)
+            c2_corrected = c2 / (1 - beta2 ** epoch + 1e-8)
             grad_b_add = - lr * (beta1 * c1_corrected + (1 - beta1) * grad) / (np.sqrt(c2_corrected) + 1e-8)
             return grad_b_add, c1, c2
             
@@ -68,13 +62,17 @@ class PolicyGradient(object):
     def softmax(self, x):
         x = x.astype(np.float64)
         exp_x = np.exp(x - np.max(x))
-        return exp_x / np.sum(exp_x)
-        
-    def policy_forward(self, state, alpha=0):
+        return exp_x / (np.sum(exp_x, axis=0) + 1e-8)
+    
+    def softmax_stable(self, x):
+        exp_x = np.exp(x - np.max(x, axis=0, keepdims=True))
+        return exp_x / (np.sum(exp_x, axis=0, keepdims=True) + 1e-8)
+
+    def policy_forward(self, state):
         hid = np.dot(self.model[1], state)
-        hid = self.activation(hid, alpha) if alpha else self.activation(hid)
+        hid = self.activation(hid, self.alpha)
         logp = np.dot(self.model[2], hid)
-        prob = self.softmax(logp)
+        prob = self.softmax_stable(logp)
         return prob, hid
     
     def discount_rewards(self, rewards):
@@ -85,10 +83,10 @@ class PolicyGradient(object):
             discounted_reward[t] = total_rewards
         return discounted_reward
     
-    def policy_backward(self, state_change, hid, gprob, alpha=0):
-        dW2 = np.dot(hid.T, state_change)
+    def policy_backward(self, state_change, hid, gprob):
+        dW2 = np.dot(hid.T, gprob).T
         dh = np.dot(gprob, self.model[2])
-        dh = self.activation(dh, 0) if alpha else self.activation(dh)
+        dh = self.activation(dh, self.alpha)
         dW1 = np.dot(dh.T, state_change)
         return {1: dW1, 2: dW2}
 
@@ -105,12 +103,12 @@ class PolicyGradient(object):
             counter = 0
             reward_sum = 0
             
-            while not done and counter <= count_max:
+            while not done and counter < count_max:  # Fix: counter < count_max
                 counter += 1
                 calc_state = state - old_state
                 
-                prob, hid = self.policy_forward(calc_state, self.alpha)
-                action = np.random.choice(np.arange(self.num_actions))
+                prob, hid = self.policy_forward(calc_state)
+                action = np.random.choice(np.arange(self.num_actions), p=prob)
                 
                 aoh = np.zeros(self.num_actions)
                 aoh[action] = 1
@@ -145,3 +143,46 @@ class PolicyGradient(object):
                                                                                    self.beta1, self.beta2, self.learning_rate, epoch)
                     self.model[k] += grad_add
                     grad_buffer[k] = np.zeros_like(v)
+                    
+            print('Epoch', epoch, '- Reward Sum', reward_sum)
+
+
+class TestEnv(object):
+    def __init__(self):
+        self.observation_space = 3
+        self.action_space = 3
+        self.numbers = [random(), random(), random()]
+        self.counter = 0
+    
+    def reset(self):
+        self.numbers = [random(), random(), random()]
+        self.counter = 0
+        return self.get_state()
+            
+    def get_state(self):
+        self.numbers = [random(), random(), random()]
+        return np.array(self.numbers)
+
+    def step(self, action, test=False):
+        total = np.sum(self.numbers)
+        if action == np.argmax(self.numbers):
+            reward = 1
+        else:
+            reward = -1
+        if test:
+            print('Action', action)
+            print('Total', total)
+            print('Reward', reward)
+            time.sleep(0.01)
+            
+        self.counter += 1
+        return self.get_state(), reward, self.counter == 100, None
+  
+    def render(self):
+        print(self.numbers, np.sum(self.numbers))
+
+
+env = TestEnv()
+pg_agent = PolicyGradient(env, learning_rate=0.01, hid_layers=20, activation=PolicyGradient.Activation.RELU,
+                          optimization=PolicyGradient.Optimization.RMSPROP)
+pg_agent.train(epochs=1000, batch_size=10, count_max=200)
