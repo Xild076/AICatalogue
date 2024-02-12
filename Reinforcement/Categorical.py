@@ -33,16 +33,28 @@ class PolicyGradient(object):
     class Optimization(Enum):
         RMSPROP = partial(lambda g, c1, c2, b1, b2, lr: PolicyGradient.Optimization.rmsprop(g, c1, c2, b1, b2, lr))
         
-        def rmsprop(grad, cache1, cache2, beta1, beta2, lr):
-            rc = beta1 * cache1[k] + (1 - beta1) * grad**2
+        def rmsprop(grad, cache1, cache2, beta1, beta2, lr, epoch):
+            rc = beta1 * cache1 + (1 - beta1) * grad**2
             return (lr * grad / (np.sqrt(rc) + 1e-8)), rc, 0
         
-        def sgd(grad, cache1, cache2, beta1, beta2, lr):
+        def sgd(grad, cache1, cache2, beta1, beta2, lr, epoch):
             return - lr * grad, 0, 0
+        
+        def adam(grad, cache1, cache2, beta1, beta2, lr, epoch):
+            c1 = beta1 * cache1 + (1 - beta1) * grad
+            c2 = beta2 * cache2 + (1 - beta1) * grad**2
+            c1_corrected = c1 / (1 - beta1 ** epoch)
+            c2_corrected = c2 / (1 - beta2 ** epoch)
+            grad_b_add = - lr * c1_corrected / (np.sqrt(c2_corrected) + 1e-8)
+            return grad_b_add, c1, c2
 
-        def adam(grad, cache1, cache2, beta1, beta2, lr):
-            pass
-            
+        def nadam(grad, cache1, cache2, beta1, beta2, lr, epoch):
+            c1 = beta1 * cache1 + (1 - beta1) * grad
+            c2 = beta2 * cache2 + (1 - beta2) * grad**2
+            c1_corrected = c1 / (1 - beta1 ** epoch)
+            c2_corrected = c2 / (1 - beta2 ** epoch)
+            grad_b_add = - lr * (beta1 * c1_corrected + (1 - beta1) * grad) / (np.sqrt(c2_corrected) + 1e-8)
+            return grad_b_add, c1, c2
             
     def model_init(self):
         self.model = {
@@ -126,6 +138,6 @@ class PolicyGradient(object):
             if epoch % batch_size == 0:
                 for k, v in self.model.items():
                     g = grad_buffer[k]
-                    grad_add, self.cache_1[k], self.cache_2[k] = self.optimization(g, self.cache_1[k], self.cache_2[k], self.beta1, self.beta2, self.learning_rate)
+                    grad_add, self.cache_1[k], self.cache_2[k] = self.optimization(g, self.cache_1[k], self.cache_2[k], self.beta1, self.beta2, self.learning_rate, epoch)
                     self.model[k] += grad_add
                     grad_buffer[k] = np.zeros_like(v)
