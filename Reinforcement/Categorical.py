@@ -31,7 +31,10 @@ class PolicyGradient(object):
         SWISH = partial(lambda x: x / (1 + np.exp(-x)))
     
     class Optimization(Enum):
-        RMSPROP = partial(lambda g, c1, c2, b1, b2, lr: PolicyGradient.Optimization.rmsprop(g, c1, c2, b1, b2, lr))
+        RMSPROP = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.rmsprop(g, c1, c2, b1, b2, lr, epoch))
+        SGD = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.sgd(g, c1, c2, b1, b2, lr, epoch))
+        ADAM = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.adam(g, c1, c2, b1, b2, lr, epoch))
+        NADAM = partial(lambda g, c1, c2, b1, b2, lr, epoch: PolicyGradient.Optimization.nadam(g, c1, c2, b1, b2, lr, epoch))
         
         def rmsprop(grad, cache1, cache2, beta1, beta2, lr, epoch):
             rc = beta1 * cache1 + (1 - beta1) * grad**2
