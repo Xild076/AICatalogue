@@ -9,41 +9,39 @@ from matplotlib.animation import FuncAnimation
 import threading
 
 class PolicyGradient(object):
-    def __init__(self, env, learning_rate, hid_layers, activation, optimization, alpha=0.99):
+    def __init__(self, env, config):
         self.env = env
         self.num_states = env.observation_space
         self.num_actions = env.action_space
-        self.learning_rate = learning_rate
-        self.hidden_layers = hid_layers
-        self.model_init()
-        self.activation = activation
-        self.optimization = optimization
-        self.alpha = alpha
-        self.discount = 0.99
-        self.beta1 = 0.9
-        self.beta2 = 0.999
+        self.learning_rate = config.get('learning_rate', 0.01)
+        self.hidden_layers = config.get('hidden_layers', 20)
+        self.activation = config.get('activation', self.Activation.RELU)
+        self.optimization = config.get('optimization', self.Optimization.RMSPROP)
+        self.backpropagation = config.get('backpropagation', self.BackPropagation.RELU)
+        self.alpha = config.get('alpha', 0.99)
+        self.discount = config.get('discount', 0.99)
+        self.beta1 = config.get('beta1', 0.9)
+        self.beta2 = config.get('beta2', 0.999)
         self.reward_list = []
         self.plot_for_train = []
+
+        self.model_init()
     
     class Activation(Enum):  
         RELU = lambda x, alpha: np.maximum(0, x)
+        LEAKY_RELU = lambda x, alpha: np.where(x > 0, x, alpha * x)
         ELU = lambda x, alpha: np.where(x >= 0, x, alpha * (np.exp(x) - 1))
         SWISH = lambda x, alpha: x / (1 + np.exp(-x))
     
     class Optimization(Enum):
-        RMSPROP = lambda grad, cache1, cache2, beta1, beta2, lr, epoch: PolicyGradient.Optimization.rmsprop(grad, cache1, cache2, beta1, beta2, lr, epoch)
-        SGD = lambda grad, cache1, cache2, beta1, beta2, lr, epoch: PolicyGradient.Optimization.sgd(grad, cache1, cache2, beta1, beta2, lr, epoch)
-        ADAM = lambda grad, cache1, cache2, beta1, beta2, lr, epoch: PolicyGradient.Optimization.adam(grad, cache1, cache2, beta1, beta2, lr, epoch)
-        NADAM = lambda grad, cache1, cache2, beta1, beta2, lr, epoch: PolicyGradient.Optimization.nadam(grad, cache1, cache2, beta1, beta2, lr, epoch)
-
-        def rmsprop(grad, cache1, cache2, beta1, beta2, lr, epoch):
+        def RMSPROP(grad, cache1, cache2, beta1, beta2, lr, epoch):
             rc = beta1 * cache1 + (1 - beta1) * grad**2
             return (lr * grad / (np.sqrt(rc) + 1e-8)), rc, 0
 
-        def sgd(grad, cache1, cache2, beta1, beta2, lr, epoch):
+        def SGD(grad, cache1, cache2, beta1, beta2, lr, epoch):
             return lr * grad, 0, 0
 
-        def adam(grad, cache1, cache2, beta1, beta2, lr, epoch):
+        def ADAM(grad, cache1, cache2, beta1, beta2, lr, epoch):
             c1 = beta1 * cache1 + (1 - beta1) * grad
             c2 = beta2 * cache2 + (1 - beta2) * grad**2
             c1_corrected = c1 / (1 - beta1 ** (epoch + 1) + 1e-8)
@@ -51,14 +49,32 @@ class PolicyGradient(object):
             grad_b_add = lr * c1_corrected / (np.sqrt(c2_corrected) + 1e-8)
             return grad_b_add, c1, c2
 
-        def nadam(grad, cache1, cache2, beta1, beta2, lr, epoch):
+        def NADAM(grad, cache1, cache2, beta1, beta2, lr, epoch):
             c1 = beta1 * cache1 + (1 - beta1) * grad
             c2 = beta2 * cache2 + (1 - beta2) * grad**2
             c1_corrected = c1 / (1 - beta1 ** (epoch + 1) + 1e-8)
             c2_corrected = c2 / (1 - beta2 ** (epoch) + 1e-8)
-            m_t = (1 - beta1) * grad / (1 - beta1**(epoch + 1))
+            m_t = (1 - beta1) * grad / (1 - beta1 ** (epoch + 1))
             grad_b_add = lr * (c1_corrected + beta1 * m_t) / (np.sqrt(c2_corrected) + 1e-8)
             return grad_b_add, c1, c2
+    
+    class BackPropagation(Enum):
+        def RELU(dh, hid, alpha):
+            dh[hid <= 0] = 0
+            return dh
+        
+        def LEAKYRELU(dh, hid, alpha):
+            dh[hid <= 0] = alpha * dh[hid <= 0]
+            return dh
+        
+        def ELU(dh, hid, alpha):
+            dh[hid <= 0] = dh[hid <= 0] * (hid[hid <= 0] + alpha)
+            return dh
+        
+        def SWISH(dh, hid, alpha):
+            swish_derivative = (1 + np.exp(-hid) + hid * np.exp(-hid)) / (1 + np.exp(-hid))**2
+            dh = dh * swish_derivative
+            return dh
             
     def model_init(self):
         self.model = {
@@ -89,7 +105,7 @@ class PolicyGradient(object):
     def policy_backward(self, state_change, hid, gprob):
         dW2 = np.dot(hid.T, gprob).T
         dh = np.dot(gprob, self.model[2])
-        dh[hid <= 0] = 0
+        dh = self.backpropagation(dh, hid, self.alpha)
         dW1 = np.dot(dh.T, state_change)
         return {1: dW1, 2: dW2}
 
@@ -169,7 +185,6 @@ class PolicyGradient(object):
         func1.join()
 
 
-
 class TestEnv(object):
     def __init__(self):
         self.observation_space = 3
@@ -206,7 +221,12 @@ class TestEnv(object):
 
 
 env = TestEnv()
-pg_agent = PolicyGradient(env, learning_rate=0.01, hid_layers=20, activation=PolicyGradient.Activation.ELU,
-                          optimization=PolicyGradient.Optimization.NADAM)
-#pav = PolicyAlgorithm(env, 0.01, 0.99, 0.99, 0.1, 100)
+config = {
+    'learning_rate': 0.01,
+    'hidden_layers': 20,
+    'activation': PolicyGradient.Activation.ELU,
+    'optimization': PolicyGradient.Optimization.NADAM,
+    'backpropagation': PolicyGradient.BackPropagation.ELU
+}
+pg_agent = PolicyGradient(env, config)
 pg_agent.train_render(10000, 10, 1000)
