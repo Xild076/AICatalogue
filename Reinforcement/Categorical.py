@@ -170,11 +170,11 @@ class PolicyGradient(object):
             self.reward_list.append(reward_sum)
 
     def render(self):
-            def better_render(mogus):
+            def better_render(none):
                 plt.cla()
                 plt.plot(self.plot_for_train, self.reward_list, label='Reward')
 
-            ani = FuncAnimation(plt.figure(), better_render, interval=100, cache_frame_data=False)
+            animation = FuncAnimation(plt.figure(), better_render, interval=1000, cache_frame_data=False)
             plt.tight_layout()
             plt.show()
 
@@ -224,7 +224,7 @@ env = TestEnv()
 config = {
     'learning_rate': 0.01,
     'hidden_layers': 20,
-    'activation': PolicyGradient.Activation.ELU,
+    'activation': PolicyGradient.Activation.LEAKY_RELU,
     'optimization': PolicyGradient.Optimization.NADAM,
     'backpropagation': PolicyGradient.BackPropagation.ELU
 }
