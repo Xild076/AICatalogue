@@ -7,10 +7,19 @@ from datetime import datetime
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 import threading
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import simpledialog
+import threading
+
 
 class PolicyGradient(object):
     def __init__(self, env, config):
         self.env = env
+
         self.num_states = env.observation_space
         self.num_actions = env.action_space
         self.learning_rate = config.get('learning_rate', 0.01)
@@ -22,8 +31,11 @@ class PolicyGradient(object):
         self.discount = config.get('discount', 0.99)
         self.beta1 = config.get('beta1', 0.9)
         self.beta2 = config.get('beta2', 0.999)
+        self.exploration_rate = config.get('exploration_rate', 0.02)
         self.reward_list = []
-        self.plot_for_train = []
+        
+        self.end = False
+        self.pause = False
 
         self.model_init()
     
@@ -112,8 +124,19 @@ class PolicyGradient(object):
     def train(self, epochs, batch_size, count_max):
         self.cache_1 = {k: np.zeros_like(v) for k, v in self.model.items()}
         self.cache_2 = {k: np.zeros_like(v) for k, v in self.model.items()}
+        e_rate = self.exploration_rate
+        
+        self.reward_list = []
         
         for epoch in range(epochs):
+            
+            if self.end:
+                break
+            
+            while self.pause:
+                time.sleep(0.1)
+            
+            self.epoch = epoch
             grad_buffer = {k: np.zeros_like(v) for k, v in self.model.items()}
 
             sstate, shidden, sgrads, srewards = [], [], [], []
@@ -129,7 +152,12 @@ class PolicyGradient(object):
                 calc_state = state - old_state
 
                 prob, hid = self.policy_forward(calc_state)
-                action = np.random.choice(np.arange(self.num_actions), p=prob)
+                
+                if random() > e_rate:
+                    action = np.random.choice(np.arange(self.num_actions), p=prob)
+                else:
+                    action = np.random.choice(np.arange(self.num_actions))
+                e_rate -= self.exploration_rate / (epoch + 1)
 
                 aoh = np.zeros(self.num_actions)
                 aoh[action] = 1
@@ -165,16 +193,15 @@ class PolicyGradient(object):
                     grad_buffer[k] = np.zeros_like(v) 
                     self.model[k] += grad_add
 
-            print('Epoch', epoch, '- Reward Sum', reward_sum)
-            self.plot_for_train.append(epoch)
             self.reward_list.append(reward_sum)
+            
 
     def render(self):
-            def better_render(none):
+            def better_render(mogus):
                 plt.cla()
-                plt.plot(self.plot_for_train, self.reward_list, label='Reward')
+                plt.plot(np.arange(self.epoch), self.reward_list, label='Reward')
 
-            animation = FuncAnimation(plt.figure(), better_render, interval=1000, cache_frame_data=False)
+            ani = FuncAnimation(plt.figure(), better_render, interval=2000, cache_frame_data=False)
             plt.tight_layout()
             plt.show()
 
@@ -220,13 +247,173 @@ class TestEnv(object):
         print(self.numbers, np.sum(self.numbers))
 
 
-env = TestEnv()
-config = {
-    'learning_rate': 0.01,
-    'hidden_layers': 20,
-    'activation': PolicyGradient.Activation.LEAKY_RELU,
-    'optimization': PolicyGradient.Optimization.NADAM,
-    'backpropagation': PolicyGradient.BackPropagation.ELU
-}
-pg_agent = PolicyGradient(env, config)
-pg_agent.train_render(10000, 10, 1000)
+class PolicyGradientUI(tk.Tk):
+    def __init__(self, env):
+        super().__init__()
+        self.env = env
+        self.config = {}
+        self.policy_gradient = PolicyGradient(self.env, self.config)
+        self.create_widgets()
+        
+        self.pause_event = threading.Event()
+    
+    def create_widgets(self):
+        activation_label = ttk.Label(self, text="Activation Function:")
+        activation_label.grid(row=0, column=0, padx=10, pady=5)
+        self.activation_var = tk.StringVar()
+        activation_dropdown = ttk.Combobox(self, textvariable=self.activation_var, values=["RELU", "LEAKY_RELU", "ELU", "SWISH"])
+        activation_dropdown.grid(row=0, column=1, padx=10, pady=5)
+        activation_dropdown.set("RELU")
+
+        optimization_label = ttk.Label(self, text="Optimization Function:")
+        optimization_label.grid(row=1, column=0, padx=10, pady=5)
+        self.optimization_var = tk.StringVar()
+        optimization_dropdown = ttk.Combobox(self, textvariable=self.optimization_var, values=["RMSPROP", "SGD", "ADAM", "NADAM"])
+        optimization_dropdown.grid(row=1, column=1, padx=10, pady=5)
+        optimization_dropdown.set("RMSPROP")
+
+        backpropagation_label = ttk.Label(self, text="Backpropagation Function:")
+        backpropagation_label.grid(row=2, column=0, padx=10, pady=5)
+        self.backpropagation_var = tk.StringVar()
+        backpropagation_dropdown = ttk.Combobox(self, textvariable=self.backpropagation_var, values=["RELU", "LEAKYRELU", "ELU", "SWISH"])
+        backpropagation_dropdown.grid(row=2, column=1, padx=10, pady=5)
+        backpropagation_dropdown.set("RELU")
+        
+        epochs_label = ttk.Label(self, text="Number of Epochs:")
+        epochs_label.grid(row=3, column=0, padx=10, pady=5)
+        self.epochs_entry = ttk.Entry(self)
+        self.epochs_entry.grid(row=3, column=1, padx=10, pady=5)
+        self.epochs_entry.insert(0, "10000")
+
+        cmax_label = ttk.Label(self, text="Cmax:")
+        cmax_label.grid(row=4, column=0, padx=10, pady=5)
+        self.cmax_entry = ttk.Entry(self)
+        self.cmax_entry.grid(row=4, column=1, padx=10, pady=5)
+        self.cmax_entry.insert(0, "100")
+
+        batch_size_label = ttk.Label(self, text="Batch Size:")
+        batch_size_label.grid(row=5, column=0, padx=10, pady=5)
+        self.batch_size_entry = ttk.Entry(self)
+        self.batch_size_entry.grid(row=5, column=1, padx=10, pady=5)
+        self.batch_size_entry.insert(0, "10")
+        
+        train_button = ttk.Button(self, text="Train", command=self.train)
+        train_button.grid(row=6, column=0, columnspan=2, pady=10)
+
+        reset_training = ttk.Button(self, text="Reset Train", command=self.reset)
+        reset_training.grid(row=7, column=0, columnspan=1, pady=5)
+        
+        reset_alg = ttk.Button(self, text="Reset Algorithm", command=self.reset_alg)
+        reset_alg.grid(row=7, column=1, columnspan=1, pady=5)
+
+        pause_resume_button = ttk.Button(self, text="Pause/Resume", command=self.pause_resume)
+        pause_resume_button.grid(row=8, column=0, columnspan=2, pady=5)
+        
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_xlabel('Epoch')
+        self.ax.set_ylabel('Reward')
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas.get_tk_widget().grid(row=0, column=2, rowspan=9, padx=10, pady=10)
+        
+        self.progress_var = tk.DoubleVar()
+        progress_label = ttk.Label(self, text="Training Progress:")
+        progress_label.grid(row=9, column=0, columnspan=2, pady=5)
+        self.progress_bar = ttk.Progressbar(self, variable=self.progress_var, length=200, mode="determinate")
+        self.progress_bar.grid(row=10, column=0, columnspan=2, pady=5)
+        
+        self.training_thread = None
+    
+    def pause_resume(self):
+        if self.policy_gradient.pause:
+            self.policy_gradient.pause = False
+        else:
+            self.policy_gradient.pause = True
+    
+    def reset_alg(self):
+        self.reset()
+        
+        activation = getattr(self.policy_gradient.Activation, self.activation_var.get())
+        optimization = getattr(self.policy_gradient.Optimization, self.optimization_var.get())
+        backpropagation = getattr(self.policy_gradient.BackPropagation, self.backpropagation_var.get())
+
+        config = {
+            'activation': activation,
+            'optimization': optimization,
+            'backpropagation': backpropagation,
+            'learning_rate': 0.01,
+            'hidden_layers': 20,
+        }
+        
+        self.policy_gradient.__init__(self.env, config)
+    
+    def train(self):
+        self.reset()
+        
+        activation = getattr(self.policy_gradient.Activation, self.activation_var.get())
+        optimization = getattr(self.policy_gradient.Optimization, self.optimization_var.get())
+        backpropagation = getattr(self.policy_gradient.BackPropagation, self.backpropagation_var.get())
+
+        config = {
+            'activation': activation,
+            'optimization': optimization,
+            'backpropagation': backpropagation,
+        }
+
+        epochs = int(self.epochs_entry.get())
+        cmax = int(self.cmax_entry.get())
+        batch_size = int(self.batch_size_entry.get())
+
+        self.policy_gradient.config = config
+        
+        self.policy_gradient.reward_list = []
+
+        self.policy_gradient.end = False
+        
+        self.update_graph(epochs)
+        self.training_thread = threading.Thread(target=self.policy_gradient.train, args=(epochs, batch_size, cmax))
+        self.training_thread.start()
+    
+    def reset(self):
+        self.policy_gradient.pause = False
+        self.policy_gradient.end = True
+        if self.training_thread:
+            try:
+                self.training_thread.stop()
+                self.training_thread.join()
+            except:
+                pass
+        self.policy_gradient.epoch = 0
+        time.sleep(0.5)
+        self.ax.clear()
+        self.canvas.draw()
+    
+    def update_graph(self, epochs):
+        self.stop_training_flag = False
+        
+        def update():
+            while not self.policy_gradient.end:
+                try:
+                    self.ax.clear()
+                    self.ax.plot(np.arange(self.policy_gradient.epoch), self.policy_gradient.reward_list, label='Reward')
+                    self.ax.set_xlabel('Epoch')
+                    self.ax.set_ylabel('Reward')
+                    self.canvas.draw()
+                except:
+                    pass
+
+                progress_value = (len(self.policy_gradient.reward_list) / epochs) * 100
+                self.progress_var.set(progress_value)
+                
+                time.sleep(0.25)
+            
+            self.progress_var.set(progress_value)
+            self.training_thread = None
+        
+        self.training_thread = threading.Thread(target=update)
+        self.training_thread.start()
+
+if __name__ == "__main__":
+    test_env = TestEnv()
+    app = PolicyGradientUI(test_env)
+    app.mainloop()
+
