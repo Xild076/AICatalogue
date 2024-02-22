@@ -1,27 +1,10 @@
-Here is a small story:
+#Welcome to the AICatalogue - by Harry Yin
 
+This repo hopes to create a list of *usable* and *simple* AI Algorithms for everyone. We have three main categories: **Reinforcement**, **Supervised**, and **LLM**.
 
+##Reinforcement
 
-There once was a dog
+This category contains general algorithms that fall under the category **Reinforcement**. That means the following algorithms grow based on information and states that are inputted. 
 
-The dog was named Bob
+###Categorical
 
-Bob was a nice dog
-
-Bob had a nice log
-
-The log was in a bog
-
-The bog had some clog
-
-And there was some fog
-
-Maybe even a groudhog
-
-Who is just a cog
-
-A cog of a vlog
-
-Leapfrog
-
-Mog
