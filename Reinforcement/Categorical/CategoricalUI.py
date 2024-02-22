@@ -4,7 +4,7 @@ from tkinter import messagebox
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import simpledialog
-from Categorical import PolicyGradient
+import Reinforcement.Categorical.Categorical as Categorical
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 import threading
@@ -20,7 +20,7 @@ class PolicyGradientUI(tk.Tk):
         self.activation_var = tk.StringVar(value="RELU")  # Add this line
         self.optimization_var = tk.StringVar(value="RMSPROP")  # Add this line
         self.backpropagation_var = tk.StringVar(value="RELU")  # Add this line
-        self.policy_gradient = PolicyGradient(self.env, self.config)
+        self.policy_gradient = Categorical.PolicyGradient(self.env, self.config)
         self.create_widgets()
             
     def create_widgets(self):
