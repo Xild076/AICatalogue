@@ -1,12 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox
-from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from tkinter import simpledialog
 import Reinforcement.Categorical.Categorical as Categorical
 from matplotlib import pyplot as plt
-from matplotlib.animation import FuncAnimation
 import threading
 import time
 import numpy as np

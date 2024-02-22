@@ -1,7 +1,6 @@
 import numpy as np
 from random import random
 import time
-from enum import Enum
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 import threading
@@ -31,7 +30,7 @@ class PolicyGradient(object):
 
         self.model_init()
     
-    class Activation(Enum):  
+    class Activation():  
         def RELU(x, alpha):
             return np.maximum(0, x)
 
@@ -44,7 +43,7 @@ class PolicyGradient(object):
         def SWISH(x, alpha):
             return x / (1 + np.exp(-x))
     
-    class Optimization(Enum):
+    class Optimization():
         def RMSPROP(grad, cache1, cache2, beta1, beta2, lr, epoch):
             rc = beta1 * cache1 + (1 - beta1) * grad**2
             return (lr * grad / (np.sqrt(rc) + 1e-8)), rc, 0
@@ -69,7 +68,7 @@ class PolicyGradient(object):
             grad_b_add = lr * (c1_corrected + beta1 * m_t) / (np.sqrt(c2_corrected) + 1e-8)
             return grad_b_add, c1, c2
     
-    class BackPropagation(Enum):
+    class BackPropagation():
         def RELU(dh, hid, alpha):
             dh[hid <= 0] = 0
             return dh
