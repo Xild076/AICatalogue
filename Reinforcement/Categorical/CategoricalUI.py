@@ -146,16 +146,20 @@ class PolicyGradientUI(tk.Tk):
     def apply_config_changes(self, popup, learning_rate, hidden_layers, alpha, discount, beta1, beta2, exploration_rate,
                              activation, optimization, backpropagation):
         try:
-            self.policy_gradient.learning_rate = float(learning_rate)
-            self.policy_gradient.hidden_layers = int(hidden_layers)
-            self.policy_gradient.alpha = float(alpha)
-            self.policy_gradient.discount = float(discount)
-            self.policy_gradient.beta1 = float(beta1)
-            self.policy_gradient.beta2 = float(beta2)
-            self.policy_gradient.exploration_rate = float(exploration_rate)
-            self.policy_gradient.activation = getattr(self.policy_gradient.Activation, activation)
-            self.policy_gradient.optimization = getattr(self.policy_gradient.Optimization, optimization)
-            self.policy_gradient.backpropagation = getattr(self.policy_gradient.BackPropagation, backpropagation)
+            config = {
+                'learning_rate': float(learning_rate),
+                'hidden_layers': int(hidden_layers),
+                'alpha': float(alpha),
+                'beta1': float(beta1),
+                'beta2': float(beta2),
+                'exploration_rate': float(exploration_rate),
+                'discount': float(discount),
+                'activation': getattr(self.policy_gradient.Activation, activation),
+                'optimization': getattr(self.policy_gradient.Optimization, optimization),
+                'backpropagation': getattr(self.policy_gradient.BackPropagation, backpropagation)    
+            }
+            
+            self.policy_gradient = Categorical.PolicyGradient(self.env, config)
 
             popup.destroy()
         except:
