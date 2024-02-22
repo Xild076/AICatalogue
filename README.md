@@ -1,6 +1,6 @@
 # Welcome to the AICatalogue - by Harry Yin
 
-This repo hopes to create a list of \textcolor{green}{green}*usable* and *simple* AI Algorithms for everyone. We have three main categories: **Reinforcement**, **Supervised**, and **LLM**.
+This repo hopes to create a list of *usable* and *simple* AI Algorithms for everyone. We have three main categories: **Reinforcement**, **Supervised**, and **LLM**.
 
 ## Reinforcement
 
