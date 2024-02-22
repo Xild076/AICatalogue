@@ -24,6 +24,8 @@ class PolicyGradientUI(tk.Tk):
         self.create_widgets()
             
     def create_widgets(self):
+        self.title("Policy Gradient UI")
+        
         epochs_label = ttk.Label(self, text="Number of Epochs:")
         epochs_label.grid(row=1, column=0, padx=10, pady=5)
         self.epochs_entry = ttk.Entry(self)
@@ -160,6 +162,8 @@ class PolicyGradientUI(tk.Tk):
             }
             
             self.policy_gradient = Categorical.PolicyGradient(self.env, config)
+            
+            self.reset()
 
             popup.destroy()
         except:
@@ -192,23 +196,6 @@ class PolicyGradientUI(tk.Tk):
             self.policy_gradient.pause = False
         else:
             self.policy_gradient.pause = True
-    
-    def reset_alg(self):
-        self.reset()
-
-        activation = getattr(self.policy_gradient.Activation, self.activation_var.get())
-        optimization = getattr(self.policy_gradient.Optimization, self.optimization_var.get())
-        backpropagation = getattr(self.policy_gradient.BackPropagation, self.backpropagation_var.get())
-
-        config = {
-            'activation': activation,
-            'optimization': optimization,
-            'backpropagation': backpropagation,
-            'learning_rate': 0.01,
-            'hidden_layers': 20,
-        }
-
-        self.policy_gradient.__init__(self.env, config)
     
     def train(self):
         self.reset()
