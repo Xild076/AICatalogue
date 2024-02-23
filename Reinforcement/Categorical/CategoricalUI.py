@@ -231,7 +231,6 @@ class PolicyGradientUI(tk.Tk):
                 self.training_thread.join()
             except:
                 pass
-        self.policy_gradient.epoch = 0
         time.sleep(0.5)
         self.ax.clear()
         self.canvas.draw()
@@ -241,14 +240,11 @@ class PolicyGradientUI(tk.Tk):
         
         def update():
             while not self.policy_gradient.end:
-                try:
-                    self.ax.clear()
-                    self.ax.plot(np.arange(self.policy_gradient.epoch), self.policy_gradient.reward_list, label='Reward')
-                    self.ax.set_xlabel('Epoch')
-                    self.ax.set_ylabel('Reward')
-                    self.canvas.draw()
-                except:
-                    pass
+                self.ax.clear()
+                self.ax.plot(np.arange(len(self.policy_gradient.reward_list)), self.policy_gradient.reward_list, label='Reward')
+                self.ax.set_xlabel('Epoch')
+                self.ax.set_ylabel('Reward')
+                self.canvas.draw()
 
                 progress_value = (len(self.policy_gradient.reward_list) / epochs) * 100
                 self.progress_var.set(progress_value)

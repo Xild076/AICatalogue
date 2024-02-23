@@ -134,7 +134,6 @@ class PolicyGradient(object):
             while self.pause:
                 time.sleep(0.1)
             
-            self.epoch = epoch
             grad_buffer = {k: np.zeros_like(v) for k, v in self.model.items()}
 
             sstate, shidden, sgrads, srewards = [], [], [], []
@@ -197,7 +196,7 @@ class PolicyGradient(object):
     def render(self):
             def better_render(mogus):
                 plt.cla()
-                plt.plot(np.arange(self.epoch), self.reward_list, label='Reward')
+                plt.plot(np.arange(len(self.reward_list)), self.reward_list, label='Reward')
 
             ani = FuncAnimation(plt.figure(), better_render, interval=2000, cache_frame_data=False)
             plt.tight_layout()
