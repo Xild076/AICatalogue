@@ -124,7 +124,7 @@ class PolicyGradientUI(tk.Tk):
         optimization_label = ttk.Label(popup, text="Optimization Function:")
         optimization_label.grid(row=8, column=0, padx=10, pady=5)
         optimization_var = tk.StringVar(value=self.policy_gradient.optimization)
-        optimization_dropdown = ttk.Combobox(popup, textvariable=optimization_var, values=["RMSPROP", "SGD", "ADAM", "NADAM"])
+        optimization_dropdown = ttk.Combobox(popup, textvariable=optimization_var, values=["RMSPROP", "SGD", "ADAM", "NAG", "NADAM"])
         optimization_dropdown.grid(row=8, column=1, padx=10, pady=5)
 
         backpropagation_label = ttk.Label(popup, text="Backpropagation Function:")

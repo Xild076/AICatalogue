@@ -58,6 +58,15 @@ class PolicyGradient(object):
             c2_corrected = c2 / (1 - beta2 ** epoch + 1e-8)
             grad_b_add = lr * c1_corrected / (np.sqrt(c2_corrected) + 1e-8)
             return grad_b_add, c1, c2
+        
+        def NAG(grad, cache1, cache2, beta1, beta2, lr, epoch):
+            m_t = beta1 * cache1 + (1 - beta1) * grad
+            c1 = beta1 * cache1 + (1 - beta1) * m_t
+            c2 = beta2 * cache2 + (1 - beta2) * grad**2
+            c1_corrected = c1 / (1 - beta1 ** (epoch + 1) + 1e-8)
+            c2_corrected = c2 / (1 - beta2 ** epoch + 1e-8)
+            grad_b_add = lr * (c1_corrected + beta1 * m_t) / (np.sqrt(c2_corrected) + 1e-8)
+            return grad_b_add, c1, c2
 
         def NADAM(grad, cache1, cache2, beta1, beta2, lr, epoch):
             c1 = beta1 * cache1 + (1 - beta1) * grad
