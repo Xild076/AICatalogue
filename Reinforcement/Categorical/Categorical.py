@@ -8,6 +8,68 @@ import threading
 
 
 class PolicyGradient(object):
+    """
+    A class for implementing a Policy Gradient algorithm.
+
+    Parameters
+    ----------
+    env : gym.Env
+        The environment to be trained on.
+    config : dict
+        A dictionary containing the configuration parameters for the algorithm.
+
+    Attributes
+    ----------
+    env : gym.Env
+        The environment to be trained on.
+    num_states : int
+        The number of states in the environment.
+    num_actions : int
+        The number of actions available in the environment.
+    learning_rate : float
+        The learning rate used for updating the policy parameters.
+    hidden_layers : int
+        The number of hidden layers in the policy network.
+    activation : function
+        The activation function used in the policy network.
+    optimization : function
+        The optimization function used for updating the policy parameters.
+    backpropagation : function
+        The backpropagation function used in the policy network.
+    alpha : float
+        The alpha parameter used in the activation functions.
+    discount : float
+        The discount factor used for calculating the returns.
+    beta1 : float
+        The beta1 parameter used in the optimization functions.
+    beta2 : float
+        The beta2 parameter used in the optimization functions.
+    exploration_rate : float
+        The exploration rate used for exploring the action space.
+    continuous : bool
+        A flag indicating whether the environment is continuous or not.
+    reward_list : list
+        A list containing the rewards obtained during training.
+
+    Methods
+    -------
+    model_init()
+        Initializes the policy network parameters.
+    softmax(x)
+        Computes the softmax function.
+    policy_forward(state)
+        Computes the output of the policy network for a given state.
+    discount_rewards(rewards)
+        Discounts the rewards according to the discount factor.
+    policy_backward(state_change, hid, gprob)
+        Computes the gradient of the policy loss with respect to the policy parameters.
+    train(epochs, batch_size, count_max)
+        Trains the policy for a given number of epochs.
+    render()
+        Renders the training progress.
+    train_render(episodes, batch_size, cmax)
+        Trains the policy and renders the training progress.
+    """
     def __init__(self, env, config):
         self.env = env
 
@@ -23,6 +85,7 @@ class PolicyGradient(object):
         self.beta1 = config.get('beta1', 0.9)
         self.beta2 = config.get('beta2', 0.999)
         self.exploration_rate = config.get('exploration_rate', 0.02)
+        self.continuous = config.get('continuous', False)
         self.reward_list = []
         
         self.end = False
@@ -156,6 +219,8 @@ class PolicyGradient(object):
             while not done and counter < count_max:
                 counter += 1
                 calc_state = state - old_state
+                if self.continuous:
+                    old_state = state
 
                 prob, hid = self.policy_forward(calc_state)
                 

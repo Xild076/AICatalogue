@@ -12,7 +12,7 @@ class PolicyGradientUI(tk.Tk):
     def __init__(self, env):
         super().__init__()
         self.env = env
-        self.config = {}
+        self.config = {'continuous': True}
         self.activation_var = tk.StringVar(value="RELU")  # Add this line
         self.optimization_var = tk.StringVar(value="RMSPROP")  # Add this line
         self.backpropagation_var = tk.StringVar(value="RELU")  # Add this line
