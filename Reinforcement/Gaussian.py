@@ -1,198 +1,145 @@
+"""action = np.array([1, 2, 3])[np.newaxis]
+state = np.array([3, 2])[np.newaxis]
+theta = np.random.randn(3, 2)
+
+def softmax(x):
+    x = x.astype(np.float64)
+    exp_x = np.exp(x - np.max(x))
+    return exp_x / np.sum(exp_x)
+
+print('theta', theta)
+reward = -1
+lr = 0.001
+
+print('theta shape', theta.shape)
+print('state shape', state.shape)
+print('action shape', action.shape)
+print('state.t shape', state.T.shape)
+
+forward = np.dot(theta, state.T)
+print('forward', forward)
+print('forward shape', forward.shape)
+
+grad = np.dot(forward, state)
+
+print('grad', grad)
+
+theta += grad * lr * reward
+
+forward = np.dot(theta, state.T)
+print('forward', forward)
+print('forward shape', forward.shape)
+"""
+
+
 import numpy as np
-from random import random
-import time
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import threading
+from random import random
+import time
 
-
-class PolicyGradient(object):
+class GaussianGradient:
     def __init__(self, env, config):
         self.env = env
-
         self.num_states = env.observation_space
         self.num_actions = env.action_space
-        self.learning_rate = config.get('learning_rate', 0.01)
-        self.hidden_layers = config.get('hidden_layers', 100)
-        self.alpha = config.get('alpha', 0.99)
-        self.optimization = config.get('optimization', self.Optimization.RMSPROP)
-        self.discount = config.get('discount', 0.99)
-        self.beta1 = config.get('beta1', 0.9)
-        self.beta2 = config.get('beta2', 0.999)
-        self.exploration_rate = config.get('exploration_rate', 0.02)
-        self.reward_list = []
-
-        self.end = False
-        self.pause = False
-
+        self.learning_rate = config.get('learning_rate', 0.1)
+        self.continuous = config.get('continuous', False)
         self.model_init()
 
-    class Optimization():
-        def RMSPROP(grad, cache1, cache2, beta1, beta2, lr, epoch):
-            rc = beta1 * cache1 + (1 - beta1) * grad**2
-            return (lr * grad / (np.sqrt(rc) + 1e-8)), rc, 0
-
-        def SGD(grad, cache1, cache2, beta1, beta2, lr, epoch):
-            return lr * grad, 0, 0
-
-        def ADAM(grad, cache1, cache2, beta1, beta2, lr, epoch):
-            c1 = beta1 * cache1 + (1 - beta1) * grad
-            c2 = beta2 * cache2 + (1 - beta2) * grad**2
-            c1_corrected = c1 / (1 - beta1 ** (epoch + 1) + 1e-8)
-            c2_corrected = c2 / (1 - beta2 ** epoch + 1e-8)
-            grad_b_add = lr * c1_corrected / (np.sqrt(c2_corrected) + 1e-8)
-            return grad_b_add, c1, c2
-        
-        def NAG(grad, cache1, cache2, beta1, beta2, lr, epoch):
-            m_t = beta1 * cache1 + (1 - beta1) * grad
-            c1 = beta1 * cache1 + (1 - beta1) * m_t
-            c2 = beta2 * cache2 + (1 - beta2) * grad**2
-            c1_corrected = c1 / (1 - beta1 ** (epoch + 1) + 1e-8)
-            c2_corrected = c2 / (1 - beta2 ** epoch + 1e-8)
-            grad_b_add = lr * (c1_corrected + beta1 * m_t) / (np.sqrt(c2_corrected) + 1e-8)
-            return grad_b_add, c1, c2
-
-        def NADAM(grad, cache1, cache2, beta1, beta2, lr, epoch):
-            c1 = beta1 * cache1 + (1 - beta1) * grad
-            c2 = beta2 * cache2 + (1 - beta2) * grad**2
-            c1_corrected = c1 / (1 - beta1 ** (epoch + 1) + 1e-8)
-            c2_corrected = c2 / (1 - beta2 ** (epoch) + 1e-8)
-            m_t = (1 - beta1) * grad / (1 - beta1 ** (epoch + 1))
-            grad_b_add = lr * (c1_corrected + beta1 * m_t) / (np.sqrt(c2_corrected) + 1e-8)
-            return grad_b_add, c1, c2
-    
     def model_init(self):
-        self.model = {
-            'mean': np.random.randn(self.num_actions, self.num_states) / np.sqrt(self.num_states) * self.learning_rate,
-            'log_std': np.random.randn(self.num_actions, self.num_states) / np.sqrt(self.num_states) * self.learning_rate,
-        }
-
-    def sample_action(self, mean, log_std):
-        action = mean + np.exp(log_std) * np.random.normal(size=self.num_actions)
-        return action
+        self.model = np.random.randn(self.num_actions, self.num_states) / np.sqrt(self.num_states) * self.learning_rate
 
     def policy_forward(self, state):
-        mean_actions = np.dot(self.model['mean'], state)
-        log_std = np.dot(self.model['log_std'], state)
-        std_dev = np.exp(log_std)
+        prob =  np.dot(self.model, state)
+        action = np.random.normal(loc=prob, scale=self.learning_rate**2)
+        action = np.clip(action, -1e5, 1e5)
+        return action
 
-        actions = self.sample_action(mean_actions, log_std)
+    def policy_backward(self, action, state):
+        return np.outer(action, state)
 
-        return actions
+    def softmax(self, x):
+        x = x.astype(np.float64)
+        exp_x = np.exp(x - np.max(x))
+        return exp_x / np.sum(exp_x)
 
-    def discount_rewards(self, rewards):
-        discounted_reward = np.zeros_like(rewards, dtype=np.float64)
-        total_rewards = 0
-        for t in reversed(range(0, len(rewards))):
-            total_rewards = total_rewards * self.discount + rewards[t]
-            discounted_reward[t] = total_rewards
-        discounted_reward -= np.min(discounted_reward)
-        discounted_reward /= np.std(discounted_reward) + 1e-8
-        return discounted_reward
-
-    def policy_backward(self, state_change, gactions, log_std):
-        dmean = np.dot(gactions.T, state_change)
-        dlog_std = 0.5 * np.dot(np.dot(gactions, np.exp(log_std)).T, state_change)
-        return {'mean': dmean, 'log_std': dlog_std}
-
-    def train(self, epochs, batch_size, count_max):
-        self.cache_1 = {k: np.zeros_like(v) for k, v in self.model.items()}
-        self.cache_2 = {k: np.zeros_like(v) for k, v in self.model.items()}
-        e_rate = self.exploration_rate
-
-        self.reward_list = []
+    def train(self, epochs, count_max):
+        self.reward_sum_list = []
 
         for epoch in range(epochs):
-
-            if self.end:
-                break
-
-            while self.pause:
-                time.sleep(0.1)
-
-            grad_buffer = {k: np.zeros_like(v) for k, v in self.model.items()}
-
-            sstate, sgrads, srewards = [], [], []
-
             state = self.env.reset()
-            old_state = 0
+            old_state = np.zeros_like(state) if self.continuous else 0
             done = False
             counter = 0
             reward_sum = 0
+            reward_list = []
+            state_list = []
 
             while not done and counter < count_max:
                 counter += 1
                 calc_state = state - old_state
+                state_list.append(state.copy())
+                if self.continuous:
+                    old_state = state.copy()
 
-                actions = self.policy_forward(calc_state)
-
-                sgrads.append(actions)
-                sstate.append(calc_state)
-
-                state, reward, done, _ = self.env.step(actions)
-                srewards.append(reward)
-
+                action = self.policy_forward(calc_state)
+                print('act', action)
+                print('state', state)
+                state, reward, done, _ = self.env.step(action)
+                reward_list.append(reward)
                 reward_sum += reward
 
-            vstate = np.vstack(sstate)
-            vgrads = np.vstack(sgrads)
-            vrewards = np.vstack(srewards)
+                averaged_reward = np.array(reward_list) - np.mean(reward_list)
 
-            discounted_vrew = self.discount_rewards(vrewards)
+                grad = self.policy_backward(action, state_list[-1])
+                grad = np.nan_to_num(grad)
+                grad = np.clip(grad, -1e10, 1e10)
+                self.model -= grad * self.learning_rate * averaged_reward[-1]
 
-            vgrads *= discounted_vrew
-            grad = self.policy_backward(vstate, vgrads, self.model['log_std'])
-            for k in self.model:
-                grad_buffer[k] += grad[k]
-
-            if epoch % batch_size == 0:
-                for k, v in self.model.items():
-                    g = grad_buffer[k]
-                    grad_add, self.cache_1[k], self.cache_2[k] = self.optimization(g, self.cache_1[k], self.cache_2[k],
-                                                                                    self.beta1, self.beta2,
-                                                                                    self.learning_rate, epoch)
-                    grad_buffer[k] = np.zeros_like(v)
-                    grad_add = np.clip(grad_add, -1, 1)
-                    self.model[k] += grad_add
-
-            self.reward_list.append(reward_sum)
+            self.reward_sum_list.append(reward_sum)
             print(reward_sum)
 
     def render(self):
         def better_render(mogus):
-            plt.cla()
-            plt.plot(np.arange(len(self.reward_list)), self.reward_list, label='Reward')
-
+            done = False
+            while not done:
+                try:
+                    plt.cla()
+                    plt.plot(np.arange(len(self.reward_sum_list)), self.reward_sum_list, label='Reward')
+                    done = True
+                except:
+                    done = False
         ani = FuncAnimation(plt.figure(), better_render, interval=2000, cache_frame_data=False)
         plt.tight_layout()
         plt.show()
 
-    def train_render(self, episodes, batch_size, cmax):
-        func1 = threading.Thread(target=self.train, args=(episodes, batch_size, cmax))
+    def train_render(self, episodes, cmax):
+        func1 = threading.Thread(target=self.train, args=(episodes, cmax))
         func1.start()
         self.render()
         func1.join()
-
 
 class TestEnv(object):
     def __init__(self):
         self.observation_space = 3
         self.action_space = 3
-        self.numbers = [random(), random(), random()]
+        self.numbers = [50*random(), 50*random(), 50*random()]
         self.counter = 0
 
     def reset(self):
-        self.numbers = [random(), random(), random()]
+        self.numbers = [50*random(), 50*random(), 50*random()]
         self.counter = 0
         return self.get_state()
 
     def get_state(self):
-        self.numbers = [random(), random(), random()]
+        self.numbers = [50*random(), 50*random(), 50*random()]
         return np.array(self.numbers)
 
     def step(self, action, test=False):
         total = np.sum(self.numbers)
-        reward = 1 - abs(total - np.sum(action))
+        reward = 10 - abs(self.numbers[0] - action[0]) - abs(self.numbers[1] - action[1]) - abs(self.numbers[2] - action[2])
         if test:
             print('Action', action)
             print('Total', total)
@@ -204,7 +151,7 @@ class TestEnv(object):
 
     def render(self):
         print(self.numbers, np.sum(self.numbers))
+ 
 
-
-pg = PolicyGradient(TestEnv(), {'learning_rate': 0.00001})
-pg.train_render(10000, 10, 100)
+GG = GaussianGradient(TestEnv(), {})
+GG.train_render(20, 10)

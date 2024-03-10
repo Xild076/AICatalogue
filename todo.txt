@@ -1,0 +1,6 @@
+Quick Todo list:
+
+- fix gaussian so it works
+- implement bias into categorical
+- refine supervised
+- 

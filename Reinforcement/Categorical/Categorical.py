@@ -160,7 +160,7 @@ class PolicyGradient(object):
             
     def model_init(self):
         self.model = {
-            1: np.random.randn(self.hidden_layers, self.num_states) / np.sqrt(self.num_actions) * self.learning_rate,
+            1: np.random.randn(self.hidden_layers, self.num_states) / np.sqrt(self.num_states) * self.learning_rate,
             2: np.random.randn(self.num_actions, self.hidden_layers) / np.sqrt(self.hidden_layers) * self.learning_rate,
         }
     
