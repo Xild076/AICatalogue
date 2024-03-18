@@ -62,7 +62,7 @@ class Activation(object):
         return NotImplementedError
 
 
-class Model(object):
+class Policy(object):
     def __init__(self, *args):        
         self.model = []
         for arg in args:
