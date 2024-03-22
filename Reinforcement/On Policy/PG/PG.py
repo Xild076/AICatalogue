@@ -130,7 +130,7 @@ class Policy(object):
     def __init__(self, *args):       
         self.model = []
         for arg in args:
-            if isinstance(arg, Neuron):
+            if isinstance(arg, Nueron):
                 self.model.append(arg)
         
         self.activation = []
@@ -249,7 +249,7 @@ class Policy(object):
     def forward(self, x):
         passes = []
         for index, layer in enumerate(self.model):
-            x = Nue.forward_pass(x, layer, self.activation[index])
+            x = Nueron.forward_pass(x, layer, self.activation[index])
             passes.append(x)
         return passes
 
