@@ -6,12 +6,12 @@ import time
 
 
 class Neuron(object):
-    def __init__(self, x, y):
+    def __init__(self, x, y, lr=0.01):
         self.x = x
         self.y = y
         self.shape = (x, y)
         
-        self.weight = np.random.randn(x, y)
+        self.weight = np.random.randn(x, y) / np.sqrt(y) * lr
     
     def update(self, add):
         self.weight += add
@@ -34,12 +34,7 @@ class Activation:
         if derivative:
             sig_x = Activation.sigmoid(x)
             return sig_x * (1 - sig_x)
-        pos_mask = (x >= 0)
-        neg_mask = ~pos_mask
-        z = np.zeros_like(x)
-        z[pos_mask] = np.exp(-x[pos_mask])
-        z[neg_mask] = np.exp(x[neg_mask])
-        return 1 / (1 + z)
+        return 1/(1 + np.exp(-x)) 
     
     @staticmethod
     def softmax(x, derivative=False):
@@ -58,16 +53,39 @@ class Activation:
 
 
 class Model(object):
-    def __init__(self, *args):
+    def __init__(self, args):
         self.model = []
-        list_arg = list(args[0])
-        for arg in list_arg:
-            if isinstance(arg, Neuron):
-                self.model.append(arg)
-        
         self.activation = []
+        
+        # Extract neurons and activation functions from arguments
+        for i in range(len(args)):
+            if isinstance(args[i], Neuron):
+                self.model.append(args[i])
+                # Check if activation function is provided for this layer
+                if i + 1 < len(args) and callable(args[i + 1]):
+                    self.activation.append(args[i + 1])
+
+    def forward(self, x, test=False):
+        passes = []
         for i in range(len(self.model)):
-            self.activation.append(list_arg[1+i*2])
+            x = Neuron.forward_pass(x, self.model[i], self.activation[i]) if i < len(self.activation) else Neuron.forward_pass(x, self.model[i], Activation.sigmoid)
+            passes.append(x)
+            if test: print(x)
+        return passes
+
+    def backward(self, vstate, vgrad, vhid):
+        update_grads = []
+        dh = vgrad.T
+        vhid = Model.fix_hid(vhid)
+        
+        for i in range(len(vhid)):
+            dw = np.dot(dh, vhid[-(i + 1)]).T
+            dh = np.dot(self.model[-(i + 1)].weight, dh) * self.activation[-(i + 2)](vhid[-(i + 1)], derivative=True).T
+            update_grads.insert(0, dw)
+        
+        update_grads.insert(0, np.dot(dh, vstate).T)
+        
+        return update_grads
 
     @staticmethod
     def fix_hid(hid):
@@ -78,26 +96,6 @@ class Model(object):
                 one_layer.append(hid[i][layer])
             vhidden.append(np.array(one_layer))
         return vhidden
-    
-    def forward(self, x):
-        passes = []
-        for index, layer in enumerate(self.model):
-            x = Neuron.forward_pass(x, layer, self.activation[index])
-            passes.append(x)
-        return passes
-    
-    def backward(self, vstate, vgrad, vhid):
-        update_grads = []
-        
-        dh = vgrad.T
-        vhid = Model.fix_hid(vhid)
-        for i in range(len(vhid)):
-            dw = np.dot(dh, vhid[-(i+1)]).T
-            dh = self.activation[-(i+2)](np.dot(self.model[-(i+1)].weight, dh), derivative=True)
-            update_grads.insert(0, dw)
-        update_grads.insert(0, np.dot(dh, vstate).T)
-        
-        return update_grads
         
 
 class Policy(object):
@@ -127,39 +125,29 @@ class Policy(object):
         epochs = config.get('epochs', 1000)
         batch_size = config.get('batch', 10)
         env = config.get('env')
-        
         reward_list = []
         
         for epoch in range(epochs):
-
             grad_buffer = [np.zeros_like(neuron.weight) for neuron in self.model.model]
             rmsprop = [np.zeros_like(neuron.weight) for neuron in self.model.model]
-
-
             sstate, shidden, sgrads, srewards = [], [], [], []
-
             state = env.reset()
             old_state = 0
             done = False
             counter = 0
             reward_sum = 0
-
+            
             while not done:
                 counter += 1
                 calc_state = state - old_state
-
                 passes = self.model.forward(calc_state)
                 prob = passes.pop(-1)
-
                 action = self.sample_action(prob)
-
                 sstate.append(calc_state)
                 shidden.append(passes)
                 sgrads.append(self.action_grad(action, prob))
-
                 state, reward, done, _ = env.step(action)
                 srewards.append(reward)
-
                 reward_sum += reward
 
             vstate = np.vstack(sstate)
@@ -168,21 +156,22 @@ class Policy(object):
             vrewards = np.vstack(srewards)
 
             discounted_vrew = self.discount_rewards(vrewards)
-            discounted_vrew -= (np.mean(discounted_vrew)).astype(np.float64)
-            discounted_vrew /= ((np.std(discounted_vrew)).astype(np.float64) + 1e-8)
-
+            discounted_vrew -= np.mean(discounted_vrew)
+            discounted_vrew /= np.std(discounted_vrew) + 1e-8
             vgrads *= discounted_vrew
             grad = self.model.backward(vstate, vgrads, vhidden)
-            grad_buffer = [gb + g for gb, g in zip(grad_buffer, grad)]
-
+            
+            for i in range(len(self.model.model)):
+                g = grad[i]
+                rmsprop[i] = 0.99 * rmsprop[i] + (1 - 0.99) * g ** 2
+                grad_add = g * self.lr / (np.sqrt(rmsprop[i]) + 1e-5)
+                grad_buffer[i] += grad_add
+            
             if epoch % batch_size == 0:
                 for i in range(len(self.model.model)):
-                    g = grad_buffer[i]
-                    rmsprop[i] = 0.99 * rmsprop[i] + (1-0.99) * g**2
-                    grad_add = g * self.lr / (np.sqrt(rmsprop[i] + 1e-5))
+                    self.model.model[i].update(grad_buffer[i] / batch_size)
                     grad_buffer[i] = np.zeros_like(self.model.model[i].weight)
-                    self.model.model[i].update(grad_add)
-
+            
             reward_list.append(reward_sum)
             print(epoch, reward_sum)
 
@@ -205,7 +194,7 @@ class Policy(object):
         plt.legend()
         plt.grid(True)
         plt.show()
-        
+
         return reward_list
 
 class Categorical(Policy):
@@ -213,7 +202,7 @@ class Categorical(Policy):
         super().__init__(config, *args)
     
     def sample_action(self, x):
-        if random.random() < 0.1:
+        if random.random() < 0.05:
             return np.random.randint(0, len(x))
         return np.argmax(x)
     
@@ -225,37 +214,46 @@ class Categorical(Policy):
 
 class TestEnv(object):
     def __init__(self):
-        self.observation_space = 3
-        self.action_space = 3
-        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10]
+        self.observation_space = 4
+        self.action_space = 4
+        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10, random.random() * 10]
         self.counter = 0
     
     def reset(self):
-        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10]
+        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10, random.random() * 10]
         self.counter = 0
         return self.get_state()
             
     def get_state(self):
-        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10]
         return np.array(self.numbers)
 
     def step(self, action, test=False):
-        total = np.sum(self.numbers)
-        if action == np.argmax(self.numbers):
-            reward = 1
-        else:
-            reward = -np.abs(action - np.argmax(self.numbers))
+        reward = ((0.3 - abs(action - np.argmax(self.numbers))) * 2) ** 3
+        if np.argmax(self.numbers) == action:
+            reward += 5
         if test:
             print('Action', action)
-            print('Total', total)
+            print('numbers', self.numbers)
             print('Reward', reward)
             
         self.counter += 1
-        return self.get_state(), reward, self.counter == 25, None
+        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10, random.random() * 10]
+        return self.get_state(), reward, self.counter == 50, None
   
     def render(self):
         print(self.numbers, np.sum(self.numbers))
 
 
-alg = Categorical({'lr': 0.0001}, Neuron(3, 100), Activation.relu, Neuron(100, 3), Activation.softmax)
-alg.train({'epochs': 10000, 'batch': 5, 'env': TestEnv()})
+alg = Categorical({'lr': 0.01}, Neuron(4, 20, 0.01), Activation.relu, Neuron(20, 4, 0.01), Activation.softmax)
+alg.train({'epochs': 10000, 'batch': 10, 'env': TestEnv()})
+
+t = TestEnv()
+for i in range(10):
+    t.reset()
+    state = t.get_state()
+    print(state)
+    a = alg.model.forward(state, True)[-1]
+    print(a)
+    action = np.argmax(a)
+    _, _, _, _ = t.step(action, True)
+    print(action)
