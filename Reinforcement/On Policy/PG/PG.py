@@ -7,7 +7,7 @@ import time
 
 class Neuron(object):
     def __init__(self, x, y):
-        self.w = np.random.randn(x, y) / np.sqrt(y)
+        self.w = np.random.randn(y, x) / np.sqrt(x)
 
 
 class Activation:
@@ -55,7 +55,7 @@ class Policy(object):
         passes = []
         hid = x
         for ind, w in enumerate(self.model):
-            hid = np.dot(hid, w.w)
+            hid = np.dot(w.w, hid)
             if ind != len(self.model) - 1:
                 hid = self.activation[ind](hid)
             passes.append(hid)
@@ -76,31 +76,15 @@ class Policy(object):
         dh = vgrad
         
         for ind, hid in enumerate(reversed(vhid)):
-            dwl = np.dot(hid.T, dh)
+            dwl = np.dot(dh.T, hid)
             dw.insert(0, dwl)
-            dh = np.dot(self.model[-(ind+1)].w, dh.T)
-            dh = self.activation[-(ind+1)](dh, d=True)
+            dh = np.dot(dh, self.model[-(ind+1)].w)
+            dh[hid <= 0] = 0
         
-        dw.insert(0, np.dot(vstate.T, dh.T))
+        dw.insert(0, np.dot(dh.T, vstate))
         
-        return dwl
+        return dw
     
-    def discount_rewards(self, rewards):
-        discounted_reward = np.zeros_like(rewards, dtype=np.float64)
-        total_rewards = 0
-        for t in reversed(range(0, len(rewards))):
-            total_rewards = total_rewards * self.discount + rewards[t]
-            discounted_reward[t] = total_rewards
-        return discounted_reward
-    
-    def sample_action(self, action_prob, randomness):
-        
-        return NotImplementedError
-    
-    def action_grad(self, action, action_prob):
-        
-        return NotImplementedError
-
     def train(self, config):
         epochs = config.get('epochs', 1000)
         batch_size = config.get('batch', 10)
@@ -122,7 +106,7 @@ class Policy(object):
                 calc_state = state - old_state
                 passes = self.forward(calc_state)
                 prob = passes.pop(-1)
-                action = self.sample_action(prob)
+                action, prob = self.sample_action(prob)
                 sstate.append(calc_state)
                 shidden.append(passes)
                 sgrads.append(self.action_grad(action, prob))
@@ -140,16 +124,16 @@ class Policy(object):
 
             vgrads *= discounted_vrew
             grad = self.backwards(vstate, shidden, vgrads)
-            for k in self.model:
-                grad_buffer[k] += grad[k]
+            for ind, k in enumerate(self.model):
+                grad_buffer[ind] += grad[ind]
 
             if epoch % batch_size == 0:
-                for k, v in self.model.items():
+                for k, v in enumerate(self.model):
                     g = grad_buffer[k]
                     rmsprop[k] = self.decay * rmsprop[k] + (1 - self.decay) * g**2
                     grad_add = self.lr * g / (np.sqrt(rmsprop[k]) + 1e-8)
-                    grad_buffer[k] = np.zeros_like(v) 
-                    self.model[k] += grad_add
+                    grad_buffer[k] = np.zeros_like(v)
+                    self.model[k].w -= grad_add
             
             reward_list.append(reward_sum)
             print(epoch, reward_sum)
@@ -175,6 +159,22 @@ class Policy(object):
         plt.show()
 
         return reward_list
+    
+    def discount_rewards(self, rewards):
+        discounted_reward = np.zeros_like(rewards, dtype=np.float64)
+        total_rewards = 0
+        for t in reversed(range(0, len(rewards))):
+            total_rewards = total_rewards * self.discount + rewards[t]
+            discounted_reward[t] = total_rewards
+        return discounted_reward
+    
+    def sample_action(self, action_prob, randomness):
+        
+        return NotImplementedError
+    
+    def action_grad(self, action, action_prob):
+        
+        return NotImplementedError
 
 
 class Categorical(Policy):
@@ -182,9 +182,10 @@ class Categorical(Policy):
         super().__init__(config, *model_args)
     
     def sample_action(self, x):
+        x = Activation.softmax(x)
         if random.random() < 0.05:
-            return np.random.randint(0, len(x))
-        return np.argmax(x)
+            return np.random.randint(0, len(x)), x
+        return np.argmax(x), x
     
     def action_grad(self, action, action_prob):
         aoh = np.zeros(len(action_prob))
@@ -209,7 +210,7 @@ class TestEnv(object):
         return np.array(self.numbers)
 
     def step(self, action, test=False):
-        reward = ((0.3 - abs(action - np.argmax(self.numbers))) * 2) ** 3
+        reward = ((0.5 - abs(action - np.argmax(self.numbers))) * 2) ** 3
         if np.argmax(self.numbers) == action:
             reward += 5
         if test:
@@ -225,8 +226,8 @@ class TestEnv(object):
         print(self.numbers, np.sum(self.numbers))
 
 
-alg = Categorical({'lr': 0.01}, Neuron(4, 20), Activation.relu, Neuron(20, 4))
-alg.train({'epochs': 10000, 'batch': 10, 'env': TestEnv()})
+alg = Categorical({'lr': 0.01}, Neuron(4, 100), Activation.relu, Neuron(100, 4))
+alg.train({'epochs': 100000, 'batch': 10, 'env': TestEnv()})
 
 t = TestEnv()
 for i in range(10):
