@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
+import gym
 
 
 class Neuron(object):
@@ -95,8 +96,8 @@ class Policy(object):
             grad_buffer = [np.zeros_like(neuron.w) for neuron in self.model]
             rmsprop = [np.zeros_like(neuron.w) for neuron in self.model]
             sstate, shidden, sgrads, srewards = [], [], [], []
-            state = env.reset()
-            old_state = 0
+            state = env.reset()[0]
+            old_state = state
             done = False
             counter = 0
             reward_sum = 0
@@ -110,9 +111,11 @@ class Policy(object):
                 sstate.append(calc_state)
                 shidden.append(passes)
                 sgrads.append(self.action_grad(action, prob))
-                state, reward, done, _ = env.step(action)
+                out = env.step(action)
+                state, reward, done = out[0], out[1], out[2]
                 srewards.append(reward)
                 reward_sum += reward
+                old_state = state
 
             vstate = np.vstack(sstate)
             vgrads = np.vstack(sgrads)
@@ -125,7 +128,7 @@ class Policy(object):
             vgrads *= discounted_vrew
             grad = self.backwards(vstate, shidden, vgrads)
             for ind, k in enumerate(self.model):
-                grad_buffer[ind] += grad[ind]
+                grad_buffer[ind] -= grad[ind]
 
             if epoch % batch_size == 0:
                 for k, v in enumerate(self.model):
@@ -183,7 +186,7 @@ class Categorical(Policy):
     
     def sample_action(self, x):
         x = Activation.softmax(x)
-        if random.random() < 0.05:
+        if random.random() < 0:
             return np.random.randint(0, len(x)), x
         return np.argmax(x), x
     
@@ -196,13 +199,13 @@ class Categorical(Policy):
 
 class TestEnv(object):
     def __init__(self):
-        self.observation_space = 4
-        self.action_space = 4
-        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10, random.random() * 10]
+        self.observation_space = 20
+        self.action_space = 20
+        self.numbers = [random.random() * 10 for _ in range(20)]
         self.counter = 0
     
     def reset(self):
-        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10, random.random() * 10]
+        self.numbers = [random.random() * 10 for _ in range(20)]
         self.counter = 0
         return self.get_state()
             
@@ -210,32 +213,35 @@ class TestEnv(object):
         return np.array(self.numbers)
 
     def step(self, action, test=False):
-        reward = ((0.5 - abs(action - np.argmax(self.numbers))) * 2) ** 3
         if np.argmax(self.numbers) == action:
-            reward += 5
+            reward = 1
+        else:
+            reward = -2
         if test:
             print('Action', action)
             print('numbers', self.numbers)
             print('Reward', reward)
             
         self.counter += 1
-        self.numbers = [random.random() * 10, random.random() * 10, random.random() * 10, random.random() * 10]
+        self.numbers = [random.random() * 10 for _ in range(20)]
         return self.get_state(), reward, self.counter == 50, None
   
     def render(self):
         print(self.numbers, np.sum(self.numbers))
 
 
-alg = Categorical({'lr': 0.01}, Neuron(4, 100), Activation.relu, Neuron(100, 4))
-alg.train({'epochs': 100000, 'batch': 10, 'env': TestEnv()})
+alg = Categorical({'lr': 0.1}, Neuron(4, 200), Activation.relu, Neuron(200, 2))
+alg.train({'epochs': 10000, 'batch': 25, 'env': gym.make('CartPole-v1')})
 
-t = TestEnv()
-for i in range(10):
-    t.reset()
-    state = t.get_state()
-    print(state)
-    a = alg.model.forward(state, True)[-1]
-    print(a)
-    action = np.argmax(a)
-    _, _, _, _ = t.step(action, True)
-    print(action)
+env = gym.make('CartPole-v1')
+done = False
+old_state = 0
+state = env.reset()[0]
+while not done:
+    env.render()
+    calc_state = state - old_state
+    act = alg.forward(state)
+    a = np.argmax(act)
+    o = env.step(a)
+    old_state = state
+    state, done = o[0], o[2]
