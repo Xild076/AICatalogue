@@ -9,6 +9,10 @@ import numpy as np
 import math
 import random
 import streamlit
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 class Layer(object):
@@ -57,7 +61,7 @@ class Layer(object):
     
     def __repr__(self):
         """Returns the description of the Layer"""
-        return f"{self.actv.upper()} Layer | {self.w.shape}"
+        return f"{self.actv.upper()} Layer | ({self.w.shape[1]}, {self.w.shape[0]})"
     
     def _backwards(self, p_div, x):
         """Runs a single backwards pass to calculated its derivative relative to the previous one.
@@ -78,3 +82,84 @@ class Layer(object):
         dn = np.dot(self.w.T, g_grad)
         
         return dg, b_grad, dn
+    
+
+class Model(object):
+    def __init__(self, config, layer, act):
+        if len(act) < len(layer) - 1:
+            raise ValueError("Activation length needs to be at least one less than length of layer.")
+        
+        self.lr = config.get('lr', 0.1)
+        self.discount = config.get('discount', 0.99)
+        self.decay = config.get('decay', 0.99)
+        
+        self.layers = []
+        
+        for i in range(len(layer) - 1):
+            self.layers.append(Layer(layer[i], layer[i + 1], act[i]))
+        
+    def __repr__(self):
+        return f"Model: {self.layers}"
+    
+    def forward(self, x):
+        passes = []
+        passes.append(x)
+        for layer in self.layers:
+            x = layer(x)
+            passes.append(x)
+        return passes
+    
+    def backward(self, passes, grad):
+        passes.reverse()
+        
+        prev_grad = grad
+        
+        dw = []
+        db = []
+        
+        for ind, layer in enumerate(reversed(self.layers)):
+            w_grad, b_grad, prev_grad = layer._backwards(prev_grad, passes[ind])
+            
+            dw.insert(0, w_grad)
+            db.insert(0, b_grad)
+        
+        return dw, db
+            
+
+def mean_squared_error(y_true, y_pred):
+    """Calculate mean squared error."""
+    return np.mean((y_true - y_pred) ** 2)
+
+X_train = np.random.randn(100,)
+y_train = 3 * X_train + 2 + np.random.randn(100,) * 0.1  # y = 3x + 2 + noise
+
+model = Model({}, [100, 400, 100], ['', '', ''])
+loss_l = []
+epochs = 1000
+for epoch in range(epochs):
+    passes = model.forward(X_train)
+    y_pred = passes.pop(-1) 
+    
+    loss = mean_squared_error(y_train, y_pred)
+    loss_l.append(loss)
+    
+    grad = 2 * (y_pred - y_train) / len(X_train)
+    dw, db = model.backward(passes, grad)
+    
+    for i, layer in enumerate(model.layers):
+        layer.w -= model.lr * dw[i]
+        layer.b -= model.lr * db[i]
+    
+    model.lr *= model.decay
+
+    if epoch % 10 == 0:
+        print(f'Epoch {epoch+1}/{epochs}, Loss: {loss}')
+    
+plt.plot(np.arange(len(loss_l)), loss_l)
+plt.show()
+
+
+passes = model.forward(X_train)
+y_pred = passes[-1]
+test_loss = mean_squared_error(y_train, y_pred)
+print(f'Test Loss: {test_loss}')
