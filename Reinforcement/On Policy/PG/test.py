@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.datasets import make_moons
 
 
 class Layer(object):
@@ -93,13 +94,35 @@ class Model(object):
         self.discount = config.get('discount', 0.99)
         self.decay = config.get('decay', 0.99)
         
-        self.layers = []
+        self.beta = config.get('beta', [0.99, 0.99])
         
+        self.optm = config.get('optm', 'sgd')
+        self.v = config.get('type', 'loss')
+        if self.v == 'loss':
+            self.lt = config.get('loss', 'mse')
+        if self.v == 'reward':
+            self.cont = config.get('cont', True)
+        
+        self.layers = []
         for i in range(len(layer) - 1):
-            self.layers.append(Layer(layer[i], layer[i + 1], act[i]))
+            self.layers.append(Layer(layer[i], layer[i + 1], act[i]))        
         
     def __repr__(self):
         return f"Model: {self.layers}"
+    
+    def _set_cache(self):
+        self.cache_w = []
+        self.cache_b = []
+        for l in self.layers:
+            self.cache_w.append(np.zeros_like(l.w))
+            self.cache_b.append(np.zeros_like(l.b))
+    
+    def _set_buffer(self):
+        self._gb_w = []
+        self._gb_b = []
+        for l in self.layers:
+            self._gb_w.append(np.zeros_like(l.w))
+            self._gb_b.append(np.zeros_like(l.b))
     
     def forward(self, x):
         passes = []
@@ -124,42 +147,171 @@ class Model(object):
             db.insert(0, b_grad)
         
         return dw, db
+
+    def _loss(self, label, pred, d=False):
+        if self.lt == 'mse':
+            if d:
+                return 2 * (label - pred) / len(label)
+            return np.mean((label - pred) ** 2)
+        
+        if self.lt == 'mae':
+            if d:
+                return -1 * np.where(label - pred < 0, -1, np.where(label - pred == 0, 0, 1))
+            return np.sum(np.abs(label - pred))
+        
+        if d:
+            return 1
+        return label - pred
+    
+    def _reward(self, actions, reward):
+        drw = self._discount_rewards(reward)
+        drw -= np.mean(drw)
+        drw /= (np.std(drw) + 1e-8)
+        
+        return actions * drw
+    
+    def _discount_rewards(self, rewards):
+        discounted_reward = np.zeros_like(rewards, dtype=np.float64)
+        total_rewards = 0
+        for t in reversed(range(0, len(rewards))):
+            total_rewards = total_rewards * self.discount + rewards[t]
+            discounted_reward[t] = total_rewards
+        return discounted_reward
+    
+    def _optimize(self, dw, db):
+        if self.optm == 'rmsprop':
+            dw_u = []
+            db_u = []
+            for i in range(len(self.layers)):
+                g_w = dw[i]
+                self.cache_w[i] = self.cache_w[i] * self.beta[0] + (1 - self.beta[0]) * g_w ** 2
+                dw_u.append(self.lr * g_w / np.sqrt(self.cache_w[i] + 1e-8))
+                
+                g_b = db[i]
+                self.cache_b[i] = self.cache_b[i] * self.beta[0] + (1 - self.beta[0]) * g_b ** 2
+                db_u.append(self.lr * g_b / np.sqrt(self.cache_b[i] + 1e-8))
             
+            return dw_u, db_u
+        
+        for i in range(len(dw)):
+            dw[i] = dw[i] * self.lr
+            db[i] = db[i] * self.lr
+        return dw, db
 
-def mean_squared_error(y_true, y_pred):
-    """Calculate mean squared error."""
-    return np.mean((y_true - y_pred) ** 2)
-
-X_train = np.random.randn(100,)
-y_train = 3 * X_train + 2 + np.random.randn(100,) * 0.1  # y = 3x + 2 + noise
-
-model = Model({}, [100, 400, 100], ['', '', ''])
-loss_l = []
-epochs = 1000
-for epoch in range(epochs):
-    passes = model.forward(X_train)
-    y_pred = passes.pop(-1) 
+    def _fix_hid(self, hid):
+        vhidden = []
+        for layer in range(len(hid[0])):
+            one_layer = []
+            for i in range(len(hid)):
+                one_layer.append(hid[i][layer])
+            vhidden.append(np.array(one_layer))
+        return vhidden
     
-    loss = mean_squared_error(y_train, y_pred)
-    loss_l.append(loss)
+    def train(self, config):
+        self._batch_size = config.get('batch', 10)
+        _epoch = config.get('epochs', 1000)
+        env = config.get('env', None)
+        
+        self._set_buffer()
+        self._set_cache()
+        
+        for epoch in range(_epoch):
+            o = None
+            if self.v == 'loss':
+                o = self._epoch_loss(epoch, env)
+            if self.v == 'reward':
+                o = self._epoch_loss(epoch, env)
+            print(epoch, o)
     
-    grad = 2 * (y_pred - y_train) / len(X_train)
-    dw, db = model.backward(passes, grad)
+    def _epoch_reward(self, epoch, env):
+        shidden, sgrads, srewards = [], [], [], []
+        state = env.reset()
+        old_state = 0
+        done = False
+        
+        while not done:
+            calc_state = state - old_state
+            
+            if self.cont:
+                old_state = state
+            
+            passes = self.forward(calc_state)
+            act, act_grad = self.sample_action(passes.pop(-1))
+            
+            shidden.append(passes)
+            sgrads.append(act_grad)
+            
+            state, reward, done, _ = env.step(act)
+            
+            srewards.append(reward)
+            
+            reward_sum += reward
+        
+        vgrads = np.vstack(sgrads)
+        vrewards = np.vstack(srewards)
+        
+        vgrads = self._reward(vgrads, vrewards)
+        g_w, g_b = self.backward(self._fix_hid(shidden), vgrads)
+        for i in range(len(self._gb_w)):
+            self._gb_w[i] += g_w[i]
+            self._gb_b[i] += g_b[i]
+        
+        if epoch % self._batch_size == 0:
+            dw, db = self._optimize(self._gb_w, self._gb_b)
+            for i in range(len(self.layers)):
+                self.layers[i].w -= dw[i]
+                self.layers[i].b -= db[i]
+            self._set_buffer()
+        
+        return reward_sum
     
-    for i, layer in enumerate(model.layers):
-        layer.w -= model.lr * dw[i]
-        layer.b -= model.lr * db[i]
-    
-    model.lr *= model.decay
+    def _epoch_loss(self, epoch, env):
+        x_train, y_train = env.get_train()
+        
+        passes = self.forward(x_train)
+        y_pred = passes.pop(-1)
+        
+        loss = self._loss(y_train, y_pred)
+        grad = self._loss(y_train, y_pred, True)
+        
+        g_w, g_b = self.backward(passes, grad)
 
-    if epoch % 10 == 0:
-        print(f'Epoch {epoch+1}/{epochs}, Loss: {loss}')
+        for i in range(len(self._gb_w)):
+            self._gb_w[i] += g_w[i]
+            self._gb_b[i] += g_b[i]
+        
+        if epoch % self._batch_size == 0:
+            dw, db = self._optimize(self._gb_w, self._gb_b)
+            for i in range(len(self.layers)):
+                self.layers[i].w += dw[i]
+                self.layers[i].b += db[i]
+            self._set_buffer()
+        
+        return loss
     
-plt.plot(np.arange(len(loss_l)), loss_l)
-plt.show()
+    def sample_action(self, x):
+        """Return an action and action_grad"""
+        
+        return NotImplementedError
 
 
-passes = model.forward(X_train)
-y_pred = passes[-1]
-test_loss = mean_squared_error(y_train, y_pred)
-print(f'Test Loss: {test_loss}')
+class TestEnvironment:
+    def __init__(self, num_samples=100):
+        self.num_samples = num_samples
+        self.generate_data()
+
+    def generate_data(self):
+        a = 2
+        b = -3
+        c = 1
+
+        self.x_train = np.random.uniform(-10, 10, self.num_samples)
+
+        self.y_train = a * self.x_train**2 + b * self.x_train + c + np.random.normal(0, 5, self.num_samples)
+
+    def get_train(self):
+        return self.x_train, self.y_train
+
+
+m = Model({'lr': 0.0001, 'optm': 'rmsprop'}, [100, 200, 100], ['', '', ''])
+m.train({'epochs': 10000, 'env': TestEnvironment()})

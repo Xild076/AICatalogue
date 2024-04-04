@@ -194,6 +194,7 @@ class PolicyGradient(object):
     def train(self, epochs, batch_size, count_max):
         self.cache_1 = {k: np.zeros_like(v) for k, v in self.model.items()}
         self.cache_2 = {k: np.zeros_like(v) for k, v in self.model.items()}
+        grad_buffer = {k: np.zeros_like(v) for k, v in self.model.items()}
         e_rate = self.exploration_rate
         
         self.reward_list = []
@@ -206,8 +207,6 @@ class PolicyGradient(object):
             while self.pause:
                 time.sleep(0.1)
             
-            grad_buffer = {k: np.zeros_like(v) for k, v in self.model.items()}
-
             sstate, shidden, sgrads, srewards = [], [], [], []
 
             state = self.env.reset()
