@@ -1,10 +1,3 @@
-# Proper implementation of what was found in PG. Complete version.
-# https://explained.ai/matrix-calculus/ use this
-# https://www.youtube.com/watch?v=VMj-3S1tku0 WATCH!!!
-# Make proper web graph viewing (streamlit?)
-# Break down everything into its most basic forms.
-# Make the code easy to understand.
-# Add proper notation.
 import numpy as np
 import math
 import random
@@ -18,10 +11,10 @@ from sklearn.datasets import make_moons
 
 class Layer(object):
     """Object class for one layer of a NN"""
-    def __init__(self, nin, nout, activation=''):
+    def __init__(self, nin, nout, activation='', lr=0.01):
         """Initializing all parameters with Xavier initialization"""
-        self.w = np.random.randn(nout, nin) / np.sqrt(nin)
-        self.b = np.random.randn(nout) / np.sqrt(nout)
+        self.w = np.random.randn(nout, nin) / np.sqrt(nin) * lr
+        self.b = np.random.randn(nout) / np.sqrt(nout) * lr
         self.actv = activation
     
     def __call__(self, x):
@@ -76,11 +69,11 @@ class Layer(object):
         do/dx will be the next x for recursive calculations."""
         
         x = np.vstack(x)
-        p_div = self._activate(p_div, True)
-        b_grad = np.squeeze(p_div)
+        p_div = self._activate(p_div, True).T
+        b_grad = np.mean((p_div))
         g_grad = np.vstack(p_div)
         dg = np.dot(g_grad, x.T)
-        dn = np.dot(self.w.T, g_grad)
+        dn = np.dot(g_grad.T, self.w)
         
         return dg, b_grad, dn
     
@@ -105,7 +98,7 @@ class Model(object):
         
         self.layers = []
         for i in range(len(layer) - 1):
-            self.layers.append(Layer(layer[i], layer[i + 1], act[i]))        
+            self.layers.append(Layer(layer[i], layer[i + 1], act[i], self.lr))        
         
     def __repr__(self):
         return f"Model: {self.layers}"
@@ -141,7 +134,7 @@ class Model(object):
         db = []
         
         for ind, layer in enumerate(reversed(self.layers)):
-            w_grad, b_grad, prev_grad = layer._backwards(prev_grad, passes[ind])
+            w_grad, b_grad, prev_grad = layer._backwards(prev_grad, passes[ind].T)
             
             dw.insert(0, w_grad)
             db.insert(0, b_grad)
@@ -215,18 +208,24 @@ class Model(object):
         self._set_buffer()
         self._set_cache()
         
+        o_list = []
+        
         for epoch in range(_epoch):
             o = None
             if self.v == 'loss':
                 o = self._epoch_loss(epoch, env)
             if self.v == 'reward':
-                o = self._epoch_loss(epoch, env)
+                o = self._epoch_reward(epoch, env)
             print(epoch, o)
+            o_list.append(o)
+        
+        return o_list
     
     def _epoch_reward(self, epoch, env):
-        shidden, sgrads, srewards = [], [], [], []
+        shidden, sgrads, srewards = [], [], []
         state = env.reset()
         old_state = 0
+        reward_sum = 0
         done = False
         
         while not done:
@@ -247,14 +246,14 @@ class Model(object):
             
             reward_sum += reward
         
-        vgrads = np.vstack(sgrads)
+        vgrads = np.array(sgrads)
         vrewards = np.vstack(srewards)
         
         vgrads = self._reward(vgrads, vrewards)
         g_w, g_b = self.backward(self._fix_hid(shidden), vgrads)
         for i in range(len(self._gb_w)):
-            self._gb_w[i] += g_w[i]
-            self._gb_b[i] += g_b[i]
+            self._gb_w[i] -= g_w[i]
+            self._gb_b[i] -= g_b[i]
         
         if epoch % self._batch_size == 0:
             dw, db = self._optimize(self._gb_w, self._gb_b)
@@ -291,8 +290,16 @@ class Model(object):
     
     def sample_action(self, x):
         """Return an action and action_grad"""
+        exp_x = np.exp(x - np.max(x))
+        prob = exp_x / np.sum(exp_x)
+        if random.random() < 0.05:
+            act = random.randint(0, len(prob) - 1)
+        else:
+            act = np.argmax(prob)
+        aoh = np.zeros_like(prob)
+        aoh[act] = 1
         
-        return NotImplementedError
+        return act, aoh - prob
 
 
 class TestEnvironment:
@@ -313,5 +320,46 @@ class TestEnvironment:
         return self.x_train, self.y_train
 
 
-m = Model({'lr': 0.0001, 'optm': 'rmsprop'}, [100, 200, 100], ['', '', ''])
-m.train({'epochs': 10000, 'env': TestEnvironment()})
+class TestEnv(object):
+    def __init__(self):
+        self.observation_space = 3
+        self.action_space = 3
+        self.numbers = [random.random(), random.random(), random.random()]
+        self.counter = 0
+    
+    def reset(self):
+        self.numbers = [random.random(), random.random(), random.random()]
+        self.counter = 0
+        return self.get_state()
+            
+    def get_state(self):
+        self.numbers = [random.random(), random.random(), random.random()]
+        return np.array(self.numbers)
+
+    def step(self, action, test=False):
+        total = np.sum(self.numbers)
+        if action == np.argmax(self.numbers):
+            reward = 1
+        else:
+            reward = -1
+        if test:
+            print('Action', action)
+            print('Total', total)
+            print('Reward', reward)
+            
+        self.counter += 1
+        return self.get_state(), reward, self.counter == 100, None
+  
+    def render(self):
+        print(self.numbers, np.sum(self.numbers))
+
+
+#m = Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'loss', 'cont': False}, [100, 200, 100], ['', '', ''])
+#j = m.train({'epochs': 10000, 'batch': 10, 'env': TestEnvironment()})
+
+
+m = Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'reward', 'cont': False}, [3, 200, 3], ['relu', '', ''])
+l = m.train({'epochs': 10000, 'batch': 10, 'env': TestEnv()})
+
+sns.lineplot(l)
+plt.show()
