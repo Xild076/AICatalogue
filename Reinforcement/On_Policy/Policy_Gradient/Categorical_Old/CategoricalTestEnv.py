@@ -36,3 +36,21 @@ class TestEnv(object):
   
     def render(self):
         print(self.numbers, np.sum(self.numbers))
+
+
+class TestEnvironment:
+    def __init__(self, num_samples=100):
+        self.num_samples = num_samples
+        self.generate_data()
+
+    def generate_data(self):
+        a = 2
+        b = -3
+        c = 1
+
+        self.x_train = np.random.uniform(-10, 10, self.num_samples)
+
+        self.y_train = a * self.x_train**2 + b * self.x_train + c + np.random.normal(0, 5, self.num_samples)
+
+    def get_train(self):
+        return self.x_train, self.y_train
