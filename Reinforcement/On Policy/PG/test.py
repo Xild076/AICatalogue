@@ -354,12 +354,14 @@ class TestEnv(object):
         print(self.numbers, np.sum(self.numbers))
 
 
-#m = Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'loss', 'cont': False}, [100, 200, 100], ['', '', ''])
-#j = m.train({'epochs': 10000, 'batch': 10, 'env': TestEnvironment()})
+m = Model({'lr': 0.00001, 'optm': 'rmsprop', 'type': 'loss', 'cont': False}, [100, 200, 100], ['', '', ''])
+j = m.train({'epochs': 10000, 'batch': 10, 'env': TestEnvironment()})
 
+sns.lineplot(j)
+plt.show()
 
-m = Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'reward', 'cont': False}, [3, 200, 3], ['relu', '', ''])
-l = m.train({'epochs': 10000, 'batch': 10, 'env': TestEnv()})
+m = Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'reward', 'cont': False}, [3, 100, 3], ['', '', ''])
+l = m.train({'epochs': 10000, 'batch': 25, 'env': TestEnv()})
 
 sns.lineplot(l)
 plt.show()
