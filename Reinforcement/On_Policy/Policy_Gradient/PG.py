@@ -6,6 +6,10 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
+import utility
+import dash
+from dash import dcc, html
+import plotly.graph_objs as go
 
 
 class Layer(object):
@@ -27,7 +31,8 @@ class Layer(object):
         """Activates the function. There are three current activation functions.
         1. ReLU, rectified linear unit, adds non-linearity.
         2. Sigmoid: squashes the values between [0, 1] and into a sum of 1.
-        3. Tanh: squashes the values between [0, 1]"""
+        3. Tanh: squashes the values between [0, 1].
+        4. None: No activation."""
         if self.actv == 'relu':
             if d:
                 x[x<=0] = 0
@@ -49,11 +54,11 @@ class Layer(object):
         return x
     
     def parameters(self):
-        """Returns the values of the Layer"""
+        """Returns the values of the Layer."""
         return self.w, self.b
     
     def __repr__(self):
-        """Returns the description of the Layer"""
+        """Returns the description of the Layer."""
         return f"{self.actv.upper()} Layer | ({self.w.shape[1]}, {self.w.shape[0]})"
     
     def _backwards(self, p_div, x):
@@ -78,20 +83,37 @@ class Layer(object):
     
 
 class Model(object):
-    def __init__(self, config, layer, act):
+    """Object class for a Policy of a NN"""
+    def __init__(self, config: dict, layer: list, act: list):
+        """Initialized parameters.
+        For config - dict:
+        - 'lr': Learning rate - Float
+        - 'discount': Reward Discount - Float
+        - 'beta': Beta for optimizations (Beta1, Beta2, ..., Betan] - List[Float, Float]
+        - 'optm': Optimization method - str ('sgd', 'rmsprop')
+        - 'type': Version - str ('loss', 'reward')
+        - 'lt': Loss Type (Only when v is loss) - str ('mse', 'mae', '')
+        - 'cont': Continuous environment - Boolean (True, False)
+        Layers: List of integers for nueron size.
+        Act: List of activation types (string), needs to be one less than length layer (last layer doesn't need optimization).
+        - '' - No activaiton
+        - 'relu' - RELU activation
+        - 'sigmoid' - SIGMOID activation
+        - 'Tanh' - TANH activation
+        """
+        
         if len(act) < len(layer) - 1:
             raise ValueError("Activation length needs to be at least one less than length of layer.")
         
         self.lr = config.get('lr', 0.1)
         self.discount = config.get('discount', 0.99)
-        self.decay = config.get('decay', 0.99)
         
         self.beta = config.get('beta', [0.99, 0.99])
         
         self.optm = config.get('optm', 'sgd')
         self.v = config.get('type', 'loss')
         if self.v == 'loss':
-            self.lt = config.get('loss', 'mse')
+            self.lt = config.get('lt', 'mse')
         if self.v == 'reward':
             self.cont = config.get('cont', True)
         
@@ -100,9 +122,11 @@ class Model(object):
             self.layers.append(Layer(layer[i], layer[i + 1], act[i], self.lr))        
         
     def __repr__(self):
+        """Returns description of Model"""
         return f"Model: {self.layers}"
     
     def _set_cache(self):
+        """Creates a cache for optimization."""
         self.cache_w = []
         self.cache_b = []
         for l in self.layers:
@@ -110,6 +134,7 @@ class Model(object):
             self.cache_b.append(np.zeros_like(l.b))
     
     def _set_buffer(self):
+        """Creates a buffer for gradient additions."""
         self._gb_w = []
         self._gb_b = []
         for l in self.layers:
@@ -117,6 +142,8 @@ class Model(object):
             self._gb_b.append(np.zeros_like(l.b))
     
     def forward(self, x):
+        """Forward pass through all layers.
+        Returns a list of all passes/inputs."""
         passes = []
         passes.append(x)
         for layer in self.layers:
@@ -125,6 +152,10 @@ class Model(object):
         return passes
     
     def backward(self, passes, grad):
+        """Backwards pass through all the layers.
+        Reverses passes and runs trough grad calculation with transposed pass.
+        Returns list of update gradients.
+        """
         passes.reverse()
         
         prev_grad = grad
@@ -141,28 +172,48 @@ class Model(object):
         return dw, db
 
     def _loss(self, label, pred, d=False):
+        """Calculating loss.
+        MSE (Mean Squared Error):
+        - MSE = mean((label - prediction) ^ 2)
+        - dMSE/dlabel = 2 * (label - pred) / n
+        MAE (Mean Absolute Error):
+        - MAE = sum(|label - prediction|)
+        - dMAE/dlabel = -1 when lable - pred > 0 and 1 when label - pred < 0
+        Normal:
+        - Loss = label - pred
+        - dLoss/dlabel = 1"""
+        
         if self.lt == 'mse':
             if d:
-                return 2 * (label - pred) / len(label)
+                return -2 * (label - pred) / len(label)
             return np.mean((label - pred) ** 2)
         
         if self.lt == 'mae':
             if d:
-                return -1 * np.where(label - pred < 0, -1, np.where(label - pred == 0, 0, 1))
-            return np.sum(np.abs(label - pred))
+                return -1/len(label) * np.sign(label - pred)
+            return np.mean(np.abs(label - pred))
         
         if d:
             return 1
         return label - pred
     
     def _reward(self, actions, reward):
+        """Calculating reward.
+        Discounts rewards, averages them, and divides by standard deviation.
+        Finds gradients in likeness loss by getting negative."""
+        
         drw = self._discount_rewards(reward)
         drw -= np.mean(drw)
         drw /= (np.std(drw) + 1e-8)
         
-        return actions * drw
+        return actions * -drw
     
     def _discount_rewards(self, rewards):
+        """Discounting rewards,
+        Gives more reward depending on recency.
+        Discounts by discount value set by config.
+        """
+        
         discounted_reward = np.zeros_like(rewards, dtype=np.float64)
         total_rewards = 0
         for t in reversed(range(0, len(rewards))):
@@ -171,6 +222,11 @@ class Model(object):
         return discounted_reward
     
     def _optimize(self, dw, db):
+        """Optimizes gradient descent.
+        Returns weight updates and bias updates.
+        RMSPROP: root mean squared propagation
+        SGD: scholastic gradient descent"""
+        
         if self.optm == 'rmsprop':
             dw_u = []
             db_u = []
@@ -191,6 +247,8 @@ class Model(object):
         return dw, db
 
     def _fix_hid(self, hid):
+        """Reorganizes the hidden layers from epoch list to layer list."""
+        
         vhidden = []
         for layer in range(len(hid[0])):
             one_layer = []
@@ -200,6 +258,12 @@ class Model(object):
         return vhidden
     
     def train(self, config):
+        """Trains the algorithm.
+        Config: Dict
+        - 'epochs': amount of training episodes
+        - 'batch': batch size (increases/decreases volitility)
+        - 'env': environment to train the algorithm"""
+        
         self._batch_size = config.get('batch', 10)
         _epoch = config.get('epochs', 1000)
         env = config.get('env', None)
@@ -208,6 +272,7 @@ class Model(object):
         self._set_cache()
         
         o_list = []
+        weight_history = []
         
         for epoch in range(_epoch):
             o = None
@@ -215,12 +280,84 @@ class Model(object):
                 o = self._epoch_loss(epoch, env)
             if self.v == 'reward':
                 o = self._epoch_reward(epoch, env)
-            print(epoch, o)
+            utility.progress_bar(epoch + 1, _epoch, suffix=f'{self.v.upper()}: {round(o, 5)}', length=50)
             o_list.append(o)
+            
+            epoch_weights = []
+            for layer in self.layers:
+                w, b = layer.parameters()
+                epoch_weights.append(w.flatten())
+            weight_history.append(epoch_weights)
         
-        return o_list
-    
+        if self.v == 'loss':
+            x_train, y_train = env.get_train()
+            
+            passes = self.forward(x_train)
+            y_pred = passes.pop(-1)
+        
+            loss = self._loss(y_train, y_pred)
+            
+            accuracy = np.mean([(yi > 0) == (scorei > 0) for yi, scorei in zip(y_train, y_pred)])
+            
+            print(f"Test: Loss ({loss}), Accuracy ({accuracy * 100}%)")
+                   
+        if self.v == 'reward':
+            state = env.reset()
+            old_state = 0
+            reward_sum = 0
+            done = False
+            
+            while not done:
+                calc_state = state - old_state
+                
+                if self.cont:
+                    old_state = state
+                
+                passes = self.forward(calc_state)
+                act, act_grad = self.sample_action(passes.pop(-1))
+                
+                state, reward, done, _ = env.step(act)
+                                
+                reward_sum += reward
+            
+            print(f"Test: Reward Sum ({reward_sum})")
+        
+        return o_list, weight_history
+
+    def visualize(self, o_list, weight_history):
+        plt.figure()
+        plt.plot(o_list)
+        plt.title('Plot of o_list')
+        plt.xlabel('Index')
+        plt.ylabel('Values')
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        
+        x = []
+        y = []
+        z = []
+        for layer_weights in weight_history:
+            for weights in layer_weights:
+                x.append(weights[0])
+                y.append(weights[1])
+                z.append(weights[2])
+                
+        ax.scatter(x, y, z, c='b', marker='.')
+        
+        ax.scatter(x[0], y[0], z[0], c='g', marker='o', label='First Update')
+        ax.scatter(x[-1], y[-1], z[-1], c='m', marker='o', label='Last Update')
+        
+        ax.set_title('3D Scatter Plot of Weight History')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+
+        plt.show()
+        
     def _epoch_reward(self, epoch, env):
+        """A single run through an epoch (reward based)"""
+        
         shidden, sgrads, srewards = [], [], []
         state = env.reset()
         old_state = 0
@@ -249,21 +386,14 @@ class Model(object):
         vrewards = np.vstack(srewards)
         
         vgrads = self._reward(vgrads, vrewards)
-        g_w, g_b = self.backward(self._fix_hid(shidden), vgrads)
-        for i in range(len(self._gb_w)):
-            self._gb_w[i] -= g_w[i]
-            self._gb_b[i] -= g_b[i]
         
-        if epoch % self._batch_size == 0:
-            dw, db = self._optimize(self._gb_w, self._gb_b)
-            for i in range(len(self.layers)):
-                self.layers[i].w -= dw[i]
-                self.layers[i].b -= db[i]
-            self._set_buffer()
+        self._update_weights(epoch, self._fix_hid(shidden), vgrads)
         
         return reward_sum
     
     def _epoch_loss(self, epoch, env):
+        """A single run through an epoch (loss based)"""
+        
         x_train, y_train = env.get_train()
         
         passes = self.forward(x_train)
@@ -272,8 +402,13 @@ class Model(object):
         loss = self._loss(y_train, y_pred)
         grad = self._loss(y_train, y_pred, True)
         
-        g_w, g_b = self.backward(passes, grad)
+        self._update_weights(epoch, passes, grad)
+        
+        return loss
 
+    def _update_weights(self, epoch, passes, grad):
+        """Updates buffer based on passes and grad and updates weights if batch is over."""
+        g_w, g_b = self.backward(passes, grad)
         for i in range(len(self._gb_w)):
             self._gb_w[i] += g_w[i]
             self._gb_b[i] += g_b[i]
@@ -281,12 +416,21 @@ class Model(object):
         if epoch % self._batch_size == 0:
             dw, db = self._optimize(self._gb_w, self._gb_b)
             for i in range(len(self.layers)):
-                self.layers[i].w += dw[i]
-                self.layers[i].b += db[i]
+                self.layers[i].w -= dw[i]
+                self.layers[i].b -= db[i]
             self._set_buffer()
-        
-        return loss
     
     def sample_action(self, x):
-        """Return an action and action_grad"""
-        return NotImplementedError
+        """Return an action and action_grad."""
+        e_x = np.exp(x - np.max(x))
+        e_x = e_x / e_x.sum(axis=0)
+        if random.random() < 0.05:
+            act = random.randint(0, len(x) - 1)
+        else:
+            act = np.argmax(e_x)
+        aoh = np.zeros_like(x)
+        aoh[act] = 1
+        a_g = aoh - e_x
+        
+        return act, a_g
+

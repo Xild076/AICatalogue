@@ -1,9 +1,0 @@
-Quick Todo list:
-
-- fix gaussian so it works
-- implement bias into categorical
-- refine supervised
-- reset the entirety of the categorical to make it extremely user_friendly and much more customizable
-    - create abstract classes for Activation, Optimization, etc.
-    - understand the basics of the math and optimize the code
-- create PPO and TRPO algorithms
