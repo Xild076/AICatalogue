@@ -1,15 +1,11 @@
 import numpy as np
 import math
 import random
-import streamlit
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import utility
-import dash
-from dash import dcc, html
-import plotly.graph_objs as go
 
 
 class Layer(object):
@@ -334,24 +330,27 @@ class Model(object):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         
-        x = []
-        y = []
-        z = []
-        for layer_weights in weight_history:
-            for weights in layer_weights:
-                x.append(weights[0])
-                y.append(weights[1])
-                z.append(weights[2])
-                
-        ax.scatter(x, y, z, c='b', marker='.')
+        x, y, z = [], [], []
+
+        for epoch_history in weight_history:
+            x.append([weights[0] for weights in epoch_history])
+            y.append([weights[1] for weights in epoch_history])
+            z.append([weights[2] for weights in epoch_history])
         
-        ax.scatter(x[0], y[0], z[0], c='g', marker='o', label='First Update')
-        ax.scatter(x[-1], y[-1], z[-1], c='m', marker='o', label='Last Update')
+        col = ['red', 'blue', 'green', 'yellow', 'orange', 'cyan']
+        for i in range(len(x[0])):
+            x_i = [x[ind][i] for ind in range(len(x))]
+            y_i = [y[ind][i] for ind in range(len(y))]
+            z_i = [z[ind][i] for ind in range(len(z))]
+            ax.scatter(x_i, y_i, z_i, c=col[i], marker='.')
+            ax.scatter([x_i[0]], [y_i[0]], [z_i[0]], c=col[i], marker='o', s=75, label=f'Start Pt of Layer {i}')
+            ax.scatter([x_i[-1]], [y_i[-1]], [z_i[-1]], c=col[i], marker='^', s=75, label=f'End Pt of Layer {i}')
         
         ax.set_title('3D Scatter Plot of Weight History')
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
+        ax.legend()
 
         plt.show()
         

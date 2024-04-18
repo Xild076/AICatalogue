@@ -59,12 +59,13 @@ class TestEnvironment:
         return self.x_train, self.y_train
 
 
-model = PG.Model({'lr': 0.00001, 'optm': 'sgd', 'type': 'loss', 'lt': 'mse'}, [100, 200, 100], ['', '', ''])
+"""model = PG.Model({'lr': 0.00001, 'optm': 'sgd', 'type': 'loss', 'lt': 'mse'}, [100, 200, 100], ['', '', ''])
 o, _ = model.train({'epochs': 5000, 'env': TestEnvironment()})
 
-model.visualize(o, _)
+model.visualize(o, _)"""
 
-model = PG.Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'reward', 'lt': 'mse', 'cont': False}, [3, 100, 3], ['', '', '', ''])
-o, _ = model.train({'epochs': 2000, 'env': TestEnv()})
+
+model = PG.Model({'lr': 0.001, 'optm': 'rmsprop', 'type': 'reward', 'lt': 'mse', 'cont': False}, [3, 200, 3], ['', '', '', ''])
+o, _ = model.train({'epochs': 20000, 'env': TestEnv()})
 
 model.visualize(o, _)
