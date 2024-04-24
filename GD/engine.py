@@ -1,6 +1,5 @@
 import math
 import random
-import numpy as np
 import matplotlib.pyplot as plt
 
 
@@ -152,6 +151,7 @@ class Galue(object):
             value._backward = _backward
         
         return softmax_values
+
 
 class Module:
     def zero_grad(self):
@@ -328,6 +328,42 @@ class Garray(list):
         for item in a[1:]:
             max_val = item if item.value > max_val.value else max_val
         return max_val
+    
+    @staticmethod
+    def argmin(a):
+        if not isinstance(a, (list, Garray)):
+            raise ValueError("Input must be a list or Garray.")
+        if len(a) == 0:
+            raise ValueError("Input list or Garray must not be empty.")
+        
+        if isinstance(a, list):
+            a = Garray.garrayify(a)
+        
+        min_val = a[0]
+        min_ind = 0
+        ind = 0
+        for item in a[1:]:
+            ind += 1
+            min_ind = ind if item.value < min_val.value else min_ind
+        return min_ind
+    
+    @staticmethod
+    def argmax(a):
+        if not isinstance(a, (list, Garray)):
+            raise ValueError("Input must be a list or Garray.")
+        if len(a) == 0:
+            raise ValueError("Input list or Garray must not be empty.")
+        
+        if isinstance(a, list):
+            a = Garray.garrayify(a)
+        
+        max_val = a[0]
+        max_ind = 0
+        ind = 0
+        for item in a[1:]:
+            ind += 1
+            max_ind = ind if item.value > max_val.value else max_ind
+        return max_ind
 
 
 class GD(Module):
@@ -347,23 +383,6 @@ class GD(Module):
 
 
 class Loss:
-    """Types: 
-    Mean Absolute Error (MAE) Loss
-    Mean Squared Error (MSE) Loss
-    Mean Bias Error (MBE) Loss
-    Categorical Cross Entropy (CCE) Loss
-    Binary Cross Entropy (BCE) Loss
-    Huber Loss
-    Hinge Loss
-    Cross Entropy Regression (CER) Loss
-    KL Divergence (KLD) Loss
-    Smooth L1 (SL1) Loss
-    Poisson Loss
-    Quantile Loss
-    Wasserstein Loss
-    Triplet Loss
-    """
-    
     @staticmethod
     def mean_absolute_error(pred, real):
         return sum(Garray.abs(Garray.sub(pred, real))) / len(pred)
@@ -385,6 +404,11 @@ class Loss:
         term_0 = Garray.mul(Garray.sub(1.0, real), Garray.sub(1 + 1e-8, pred).log())
         term_1 = Garray.mul(real, pred.log())
         return -sum(Garray.add(term_0, term_1)) / len(pred)
+    
+    @staticmethod
+    def support_vector_machine(pred, real):
+        losses = [(1 + -yi*scorei).relu() for yi, scorei in zip(pred, real)]
+        return sum(losses) * (1.0 / len(losses))
     
     @staticmethod
     def huber(pred, real, delta=1.0):
@@ -437,51 +461,89 @@ class Loss:
         dist_negative = sum(Garray.pow(Garray.sub(anchor, negative), 2))
         return Garray.relu(dist_positive - dist_negative + margin)
 
+    @staticmethod
+    def regulatization(parameters, alpha=1e-4):
+        return alpha * sum((p*p for p in parameters))
+
 
 class Optim(Module):
-    def __init__(self, optmtype, parameters, lr=0.01, beta=[0.9, 0.99]):
-        self.type = optmtype
+    def __init__(self, parameters, lr=0.01, beta=[0.9, 0.99]):
         self.parameters = parameters
         self.lr = lr
         self.beta = beta
         self._create_cache()
     
     def _create_cache(self):
-        if self.type == 'rmsprop':
-            self._cache = [0 for _ in self.parameters]
-        if self.type == 'adam':
-            self._cache = [[0 for _ in self.parameters] for i in range(2)]
+        pass
     
-    def optimize(self):
-        if self.type == 'sgd':
-            for param in self.parameters:
-                param.value -= param.grad * self.lr
-        elif self.type == 'rmsprop':
-            for i, param in enumerate(self.parameters):
-                self._cache[i] = self._cache[i] * self.beta[0] + (1 - self.beta[0]) * param.grad ** 2
-                param.value -= self.lr * param.grad / np.sqrt(self._cache[i] + 1e-8)
-        elif self.type == 'adam':
-            for i, param in enumerate(self.parameters):
-                self._cache[0][i] = self.beta[0] * self._cache[0][i] + (1 - self.beta[0]) * param.grad
-                self._cache[1][i] = self.beta[1] * self._cache[1][i] + (1 - self.beta[1]) * param.grad ** 2
-                mt = self._cache[0][i] / (1 - self.beta[0])
-                vt = self._cache[1][i] / (1 - self.beta[1])
-                param.value -= self.lr * mt / (math.sqrt(vt) + 1e-8)
-        else:
-            raise ValueError("Optimization doesn't exist.")
+    def step(self):
+        pass
+
+class SGD(Optim):
+    def __init__(self, parameters, lr=0.01, beta=[0.9, 0.99]):
+        super().__init__(parameters, lr, beta)
+    
+    def step(self):
+        for param in self.parameters:
+            param.value -= param.grad * self.lr
+
+class RMSProp(Optim):
+    def __init__(self, parameters, lr=0.01, beta=[0.9, 0.99]):
+        super().__init__(parameters, lr, beta)
+    
+    def _create_cache(self):
+        self._cache = [0 for _ in self.parameters]
+    
+    def step(self):
+        for i, param in enumerate(self.parameters):
+            self._cache[i] = self._cache[i] * self.beta[0] + (1 - self.beta[0]) * param.grad ** 2
+            param.value -= self.lr * param.grad / np.sqrt(self._cache[i] + 1e-8)
+
+class ADAM(Optim):
+    def __init__(self, parameters, lr=0.01, beta=[0.9, 0.99]):
+        super().__init__(parameters, lr, beta)
+    
+    def _create_cache(self):
+        self._cache = [[0 for _ in self.parameters] for i in range(2)]
+    
+    def step(self):
+        for i, param in enumerate(self.parameters):
+            self._cache[0][i] = self.beta[0] * self._cache[0][i] + (1 - self.beta[0]) * param.grad
+            self._cache[1][i] = self.beta[1] * self._cache[1][i] + (1 - self.beta[1]) * param.grad ** 2
+            mt = self._cache[0][i] / (1 - self.beta[0])
+            vt = self._cache[1][i] / (1 - self.beta[1])
+            param.value -= self.lr * mt / (math.sqrt(vt) + 1e-8)
 
 
-model = GD([3, 2, 1], ['relu', ''])
-optim = Optim('adam', model.parameters(), 0.003)
-a = []
-for i in range(1000):
-    g = model([3, 2, 1])
-    l = Loss.mean_squared_error(g, [2])
-    print("l", l.value)
-    a.append(l.value)
-    l.backward()
-    optim.optimize()
-    model.zero_grad()
 
-plt.plot(a)
-plt.show()
+"""inp = [4, 2, 8]
+g = GD([3, 2, 3], ['relu', ''])
+optm = SGD(g.parameters())
+out = g(inp)
+logit = out.softmax()
+print(logit)
+argmax = Garray.argmax(logit)
+print(Garray.argmax(logit))
+aoh = [0, 0, 0]
+aoh[argmax] = 1
+print(aoh)
+loss1 = Loss.categorical_cross_entropy(logit, aoh)
+
+inp = [9, 4, 2]
+out = g(inp)
+logit = out.softmax()
+print(logit)
+argmax = Garray.argmax(logit)
+print(Garray.argmax(logit))
+aoh = [0, 0, 0]
+aoh[argmax] = 1
+print(aoh)
+loss2 = Loss.categorical_cross_entropy(logit, aoh)
+
+print(loss1, loss2)
+loss = loss1 * 1 + loss2 * -1
+loss.backward()
+optm.step()
+print(g([4, 2, 8]).softmax())
+print(g([9, 4, 2]).softmax())
+"""
