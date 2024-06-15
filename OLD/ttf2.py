@@ -19,9 +19,6 @@ class value:
         if isinstance(data, (int, float)):
             return 0
         return [self._zero_grad(x) for x in data]
-
-    def zero_grad(self):
-        self._zero_grad(self.data)
     
     def _shape(self, t):
         if not isinstance(t, list):
@@ -152,59 +149,9 @@ class value:
         out._backward = _backward
         
         return out
-        
-    def sum(self):
-        sum_value = sum(self._flatten(self.data))
-        out = value(sum_value, (self,), 'sum')
-        
-        def _backward():
-            def propagate_gradients(data, grad):
-                if isinstance(data, (int, float)):
-                    return grad
-                if not isinstance(grad, list):
-                    grad = [grad]
-                total_grad = []
-                for i, x in enumerate(data):
-                    if isinstance(x, list):
-                        total_grad.extend(propagate_gradients(x, grad[i]))
-                    else:
-                        total_grad.append(grad[i])
-                return total_grad
-            
-            self.grad = self._map_zip(lambda x, y: x + y, self.grad, propagate_gradients(self.data, out.grad))
-        
-        out._backward = _backward
-        return out
-
-    def _flatten(self, data):
-        if isinstance(data, (int, float)):
-            return [data]
-        return [item for sublist in data for item in self._flatten(sublist)]
     
     def __repr__(self):
         return f"Value(data={self.data}, grad={self.grad})"
-    
-    @staticmethod
-    def combine(values):
-        if not values:
-            return value(0)
-
-        combined_data = [v.data for v in values]      
-        combined_grads = [v.grad for v in values]
-
-        combined_value = value(combined_data, set(values))
-        combined_value.grad = combined_grads
-        
-        def _backward():
-            for v in values:
-                v.grad = combined_value.grad[values.index(v)]
-                v._backward()
-        combined_value._backward = _backward
-
-        return combined_value
-    
-    def step(self, grad):
-        self.data = self._map_zip(lambda x, y: x - y, self.data, grad)
     
     def backward(self):
         topo = []
@@ -224,9 +171,13 @@ class value:
         for v in reversed(topo):
             v._backward()
 
-    def softmax(self):
-        exp_values = self.exp()
-        sum_exp_values = exp_values.sum()
-        softmax_values = exp_values / sum_exp_values
-        
-        return softmax_values
+
+a = value([[-1, 3, 2], [3, 1, 2]])
+b = value([[1, 3, 2]])
+
+print(a + b)
+
+c = a.exp()
+print(a / 2)
+c.backward()
+print(a)

@@ -2,7 +2,7 @@ import math
 from engine import Value, Array
 
 
-def softmax(array):
+"""def softmax(array):
     if isinstance(array, list):
         array = Array(array)
     max_val = max(array, key=lambda x: x.data).data
@@ -22,4 +22,16 @@ def softmax(array):
         v._backward = _backward
     
     return out
+"""
+
+def softmax(array):
+    if isinstance(array, list):
+        array = Array(array)
+    
+    exp_values = array.exp()
+    sum_exp_values = sum(exp_values)
+    softmax_values = exp_values / sum_exp_values
+    
+    return softmax_values
+
 

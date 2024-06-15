@@ -33,9 +33,9 @@ class Categorical(Array):
         logsumexp = max_logit + sum((self.logits - max_logit).exp()).log()
         return self.logits[value] - logsumexp
     
-    def sample(self, rand=0):
+    def sample(self, rand=0.0):
         if random.random() <= rand:
-            return random.randint(0, len(self))
+            return random.randint(0, len(self)-1)
         return Array.arg_max(self)
 
     def entropy(self):
