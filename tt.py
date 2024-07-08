@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
-
+import time
 
 
 class ActorNet(nn.Module):
@@ -115,6 +115,14 @@ for i in range(5000):
     logprbs = logprbs.unsqueeze(dim=1)
     cum_rewards = torch.tensor(cum_rewards, dtype=torch.float)
     cum_rewards = cum_rewards.unsqueeze(dim=1)
+    
+    print(states.shape)
+    print(actions.shape)
+    print(logits_old.shape)
+    print(logprbs.shape)
+    print(cum_rewards.shape)
+    
+    time.sleep(3)
     # Get values and logits with new parameters
     values_new = value_func(states)
     logits_new = actor_func(states)
@@ -124,6 +132,12 @@ for i in range(5000):
     logprbs_new = -F.cross_entropy(logits_new, actions, reduction="none")
     logprbs_new = logprbs_new.unsqueeze(dim=1)
     prob_ratio = torch.exp(logprbs_new - logprbs)
+    
+    print(values_new.shape)
+    print(logits_new.shape)
+    print(advantages.shape)
+    print(logprbs_new.shape)
+    print(prob_ratio.shape)
     # Calculate KL-div for Categorical distribution (see above)
     l0 = logits_old - torch.amax(logits_old, dim=1, keepdim=True) # reduce quantity
     l1 = logits_new - torch.amax(logits_new, dim=1, keepdim=True) # reduce quantity

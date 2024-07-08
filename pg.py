@@ -75,9 +75,9 @@ class VPG:
 
 lr = 0.001
 env = gym.make('CartPole-v1', render_mode='human')
-#env = gym.make('CartPole-v1')
+env = gym.make('CartPole-v1')
 env.metadata['render_fps'] = 640
-policy_net = PolicyNet(layers=[4, 16, 2], activ=['relu', ''], init_method='xavier')
+policy_net = PolicyNet(layers=[4, 64, 2], activ=['relu', ''], init_method='xavier')
 vpg_instance = VPG(env, policy_net, RMSProp, lr)
 
 score = vpg_instance.train(5000)

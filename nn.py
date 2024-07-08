@@ -46,7 +46,6 @@ class Neuron(Module):
             act = act.relu()
         elif self.activ == 'softmax':
             act = act.softmax()
-        # Add other activations as needed
         return act
 
     def parameters(self):
@@ -62,6 +61,7 @@ class Layer(Module):
 
     def __call__(self, x):
         out = [neuron(x) for neuron in self.neurons]
+        out = out[0] if len(out) == 1 else out
         return value.stack(out).transpose()
 
     def parameters(self):
