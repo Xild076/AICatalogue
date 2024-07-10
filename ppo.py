@@ -1,134 +1,129 @@
-from nn import MLP
-from engine import value
-from optim import SGD, RMSProp
-from dist import Categorical
-import random
 import numpy as np
-import functional
 import gym
+import matplotlib.pyplot as plt
+from engine import value
+from nn import MLP
+from optim import ADAM
+from dist import Categorical
+import time
+import functional
 
 
-class FF(MLP):
-    def __init__(self, layers, activ, init_method='xavier'):
+class PolicyNet(MLP):
+    def __init__(self, layers, activ, init_method):
         super().__init__(layers, activ, init_method)
     
-    def forward(self, s):
-        s = value(s) if not isinstance(s, value) else s
-        return self(s)
+    def forward(self, x):
+        x = value(x) if not isinstance(x, value) else x
+        return self(x).softmax()
 
+class ValueNet(MLP):
+    def __init__(self, layers, activ, init_method):
+        super().__init__(layers, activ, init_method)
+    
+    def forward(self, x):
+        x = value(x) if not isinstance(x, value) else x
+        return self(x)
 
 class PPO:
-    def __init__(self, env, actor_net, value_net, optim_class, lr):
+    def __init__(self, env, policy_net, value_net, policy_lr, value_lr, gamma=0.99, epsilon=0.2, k=4):
         self.env = env
-        self.actor_net = actor_net
+        self.policy_net = policy_net
         self.value_net = value_net
-        self.optim = optim_class(actor_net.parameters() + value_net.parameters(), lr)
-        self.gamma = 0.99
-        self.kl_coeff = 0.2
-        self.vf_coeff = 0.5
+        self.policy_optimizer = ADAM(policy_net.parameters(), policy_lr)
+        self.value_optimizer = ADAM(value_net.parameters(), value_lr)
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.k = k
     
-    def pick_sample_and_logp(self, s):
-        with value.no_grad():
-            logits = self.actor_net(s)
-            probs = logits.softmax()
-            c = Categorical(probs=probs)
-            a = c.sample()
-            lp = -c.log_prob(a)
-            return a, logits, lp
+    def discount_rewards(self, rewards, gamma):
+        discounted_rewards = np.zeros_like(rewards, dtype=np.float64)
+        cumulative = 0.0
+        for i in reversed(range(len(rewards))):
+            cumulative = cumulative * gamma + rewards[i]
+            discounted_rewards[i] = cumulative
+        return value(discounted_rewards)
     
-    def discount(self, rewards, gamma):
-        cum_rewards = np.zeros_like(rewards)
-        reward_len = len(rewards)
-        for j in reversed(range(reward_len)):
-            cum_rewards[j] = rewards[j] + (cum_rewards[j+1]*gamma if j+1 < reward_len else 0)
-        return cum_rewards
-    
-    def train(self, epochs):
+    def train(self, epochs, batch_size=64):
         returns = []
         
         for epoch in range(epochs):
-            states = []
-            actions = []
-            logits = []
-            logprbs = []
-            rewards = []
-            
+            states, actions, rewards, old_probs, values, masks = [], [], [], [], [], []
             state, _ = self.env.reset()
-            counter = 0
-            while True:
-                counter += 1
+            done = False
+            while not done:
                 state = value(state)
-                states.append(state.data)
+                probs = self.policy_net.forward(state)
+                sampler = Categorical(probs=probs)
+                action = sampler.sample()
+                log_prob = sampler.log_prob(action)
+                value_pred = self.value_net.forward(state)
                 
-                a, l, p = self.pick_sample_and_logp(state)
-                state, r, done, _, _ = self.env.step(a)
+                n_s, r, done, _, _ = self.env.step(action)
                 
-                actions.append(a)
+                states.append(state)
+                actions.append(action)
                 rewards.append(r)
-                logits.append(l)
-                logprbs.append(p)
+                old_probs.append(log_prob)
+                values.append(value_pred)
+                masks.append(1 - done)
                 
-                if done or counter == 500:
-                    break
-            
-            R = value(self.discount(rewards, self.gamma))
-            states = value(states)
-            logits_old = value.transform(logits)
-            logprbs = value.transform(logprbs)
-                        
-            value_new = self.value_net(states).flatten()
-            logits_new = self.actor_net(states)
-                        
-            advantages = R - value_new
-            
-            c_new = Categorical(logits=logits_new)
-            logprbs_new = -c_new.log_prob(actions)
-            prob_ratio = (logprbs_new - logprbs).exp()
-            
-            l0 = logits_old - logits_old.amax(axis=1, keepdims=True)
-            l1 = logits_new - logits_new.amax(axis=1, keepdims=True)
-            e0 = l0.exp()
-            e1 = l1.exp()
-            e_sum0 = e0.sum(axis=1, keepdims=True)
-            e_sum1 = e1.sum(axis=1, keepdims=True)
-            p0 = e0 / e_sum0
-            kl = (p0 * (l0 - e_sum0.log() - l1 + e_sum1.log())).sum(axis=1, keepdims=True).flatten()
-            
-            diff = R - value_new
-            diff2 = diff ** 2
-            mse = diff2.mean()
-            
-            loss = -advantages * prob_ratio + kl * self.kl_coeff + mse * self.vf_coeff
-            
-            loss.backward()
-            self.optim.step()
-            self.optim.zero_grad()
+                state = n_s
             
             returns.append(sum(rewards))
-            print(f'Episode {epoch} | Reward {sum(rewards)}')
+            R = self.discount_rewards(rewards, self.gamma)
+            values = value.transform(values)
+            advantages = R - values
             
-            returns.append(sum(rewards))
+            states = value.transform(states)
+            old_probs = value.transform(old_probs)
+            returns_val = R
             
+            for _ in range(self.k):
+                probs = self.policy_net.forward(states)
+                sampler = Categorical(probs=probs)
+                log_probs = sampler.log_prob(actions)
+                ratio = (log_probs - old_probs).exp()
+                surr1 = ratio * advantages
+                surr2 = ratio.clip(1.0 - self.epsilon, 1.0 + self.epsilon) * advantages
+                policy_loss = -surr1.minimum(surr2).mean()
+                
+                self.policy_optimizer.zero_grad()
+                policy_loss.backward()
+                print(policy_loss)
+                print(surr2)
+                self.policy_optimizer.step()
+                
+                value_pred = self.value_net.forward(states).flatten()
+                print(value_pred.shape)
+                print(returns_val.shape)
+                value_loss = functional.mean_squared_error(value_pred, returns_val, 'none')
+                
+                self.value_optimizer.zero_grad()
+                value_loss.backward()
+                print(value_loss)
+                print(self.value_net.layers[0].neurons[0].weights)
+                time.sleep(10)
+                self.value_optimizer.step()
+            
+            print(f'Epoch {epoch} | Reward {sum(rewards)}')
+        
         return returns
 
 
-lr = 0.001
-env = gym.make('CartPole-v1', render_mode='human')
+policy_lr = 0.0003
+value_lr = 0.0003
 env = gym.make('CartPole-v1')
-# env.metadata['render_fps'] = 640
-actor_net = FF(layers=[4, 16, 2], activ=['relu', ''], init_method='xavier')
-value_net = FF(layers=[4, 16, 1], activ=['relu', ''], init_method='xavier')
-vpg_instance = PPO(env, actor_net, value_net, RMSProp, lr)
+env.metadata['render_fps'] = 640
+policy_net = PolicyNet(layers=[4, 64, 2], activ=['relu', ''], init_method='xavier')
+value_net = ValueNet(layers=[4, 64, 1], activ=['relu', ''], init_method='xavier')
+ppo_instance = PPO(env, policy_net, value_net, policy_lr, value_lr)
 
-score = vpg_instance.train(5000)
-x = [i for i in range(len(score))]
+scores = ppo_instance.train(1000)
+x = [i for i in range(len(scores))]
 
-z = np.polyfit(x, score, 25)
-p = np.poly1d(z)
-
-plt.plot(x, score)
-plt.plot(x, p(x))
+plt.plot(x, scores)
 plt.xlabel('Episodes')
 plt.ylabel('Total Reward')
-plt.title('Training Progress of VPG on CartPole-v1')
+plt.title('Training Progress of PPO on CartPole-v1')
 plt.show()

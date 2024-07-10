@@ -61,7 +61,6 @@ class Layer(Module):
 
     def __call__(self, x):
         out = [neuron(x) for neuron in self.neurons]
-        out = out[0] if len(out) == 1 else out
         return value.stack(out).transpose()
 
     def parameters(self):

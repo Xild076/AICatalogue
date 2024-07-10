@@ -122,15 +122,21 @@ class value:
         return out
 
     def clip(self, min=None, max=None):
-        min = min.data if isinstance(min, value) else min
-        max = max.data if isinstance(max, value) else max
-        out = value(np.clip(self.data, min, max), (self,), 'clip', value._no_grad)
+        min = min if isinstance(min, value) else value(min)
+        max = max if isinstance(max, value) else value(max)
+        out = value(np.clip(self.data, min.data, max.data), (self, min, max), 'clip', value._no_grad)
 
         def _backward():
             if out._ng:
                 return
-            mask = (self.data >= min) & (self.data <= max)
+            mask = (self.data >= min.data) & (self.data <= max.data)
             self.grad += mask * out.grad
+            # Ensure gradients flow through even if clipped
+            if np.any(self.data < min.data):
+                min.grad += (self.data < min.data) * out.grad
+            if np.any(self.data > max.data):
+                max.grad += (self.data > max.data) * out.grad
+
         out._backward = _backward
         return out
 
@@ -183,7 +189,7 @@ class value:
             self.grad += out.data * out.grad
         out._backward = _backward
         return out
-    
+
     def sinh(self):
         out = value(np.sinh(self.data), (self,), 'sinh', value._no_grad)
 
@@ -228,7 +234,7 @@ class value:
             self.grad += expanded_grad
         out._backward = _backward
         return out
-    
+
     def mean(self, axis=None, keepdims=False):
         out = value(np.mean(self.data, axis=axis, keepdims=keepdims), (self,), 'mean', value._no_grad)
 
@@ -237,13 +243,13 @@ class value:
                 return
             if axis is None:
                 num_elements = self.data.size
-                expanded_grad = np.ones_like(self.data) * out.grad / num_elements
+                expanded_grad = np.ones_like(self.data) * (out.grad / num_elements)
             else:
-                num_elements = self.data.shape[axis]
-                expanded_grad = np.expand_dims(out.grad, axis)
-                expanded_grad = np.broadcast_to(expanded_grad, self.shape) / num_elements
+                num_elements = np.prod([self.data.shape[ax] for ax in (axis if isinstance(axis, tuple) else (axis,))])
+                expanded_grad = np.expand_dims(out.grad, axis) / num_elements
+                expanded_grad = np.broadcast_to(expanded_grad, self.shape)
             self.grad += expanded_grad
-        
+
         out._backward = _backward
         return out
 
@@ -260,7 +266,7 @@ class value:
             self.grad += var_grad
         out._backward = _backward
         return out
-    
+
     def softmax(self):
         exps = np.exp(self.data - np.max(self.data, axis=-1, keepdims=True))
         sum_exps = np.sum(exps, axis=-1, keepdims=True)
@@ -309,7 +315,7 @@ class value:
             self.grad += mask * out.grad
         out._backward = _backward
         return out
-    
+
     def amax(self, axis=None, keepdims=False):
         out = value(np.amax(self.data, axis=axis, keepdims=keepdims), (self,), 'amax', value._no_grad)
 
@@ -458,7 +464,10 @@ class value:
             v._backward()
 
     def __len__(self):
-        return len(self.data)
+        try:
+            return len(self.data)
+        except:
+            return 1
     
     def __repr__(self):
         try:
@@ -503,3 +512,13 @@ class value:
                 value._no_grad = False
 
         return NoGradContextManager()
+    
+    def flatten(self):
+        out = value(self.data.flatten(), (self,), 'flatten', value._no_grad)
+
+        def _backward():
+            if out._ng:
+                return
+            self.grad += out.grad.reshape(self.shape)
+        out._backward = _backward
+        return out
